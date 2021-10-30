@@ -1,0 +1,3 @@
+<launch>
+    <test pkg="local_excavation" test-name="local_excavation_test" type="local_excavation_test"/>
+</launch>

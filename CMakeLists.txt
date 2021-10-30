@@ -7,16 +7,52 @@ project(local_excavation)
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
-find_package(catkin REQUIRED)
+set(CATKIN_DEPENDS
+        grid_map_ros
+        grid_map_msgs
+        grid_map_cv
+        grid_map_pcl
+        grid_map_sdf
+        grid_map_core
+        roscpp
+        rospy
+        m545_msgs
+        pcl_ros
+        kindr_ros
+        signal_logger
+        tinyxml_tools
+        curves
+        loco_m545
+        excavation_mapping
+        geometry_msgs
+        )
+
+
+find_package(catkin REQUIRED COMPONENTS
+        grid_map_ros
+        grid_map_msgs
+        grid_map_cv
+        grid_map_pcl
+        grid_map_sdf
+        grid_map_core
+        roscpp
+        rospy
+        m545_msgs
+        pcl_ros
+        kindr_ros
+        signal_logger
+        tinyxml_tools
+        curves
+        loco_m545
+        excavation_mapping
+        geometry_msgs
+        )
 
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
-
-
-## Uncomment this if the package has a setup.py. This macro ensures
-## modules and global scripts declared therein get installed
-## See http://ros.org/doc/api/catkin/html/user_guide/setup_dot_py.html
-# catkin_python_setup()
+find_package(Eigen3 REQUIRED)
+find_package(LAPACK REQUIRED)
+find_package(OpenCV)
 
 ################################################
 ## Declare ROS messages, services and actions ##
@@ -99,9 +135,9 @@ find_package(catkin REQUIRED)
 ## CATKIN_DEPENDS: catkin_packages dependent projects also need
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
-#  INCLUDE_DIRS include
-#  LIBRARIES local_excavation
-#  CATKIN_DEPENDS other_catkin_pkg
+        INCLUDE_DIRS include
+        LIBRARIES local_excavation
+        CATKIN_DEPENDS ${CATKIN_DEPENDS}
 #  DEPENDS system_lib
 )
 
@@ -112,14 +148,13 @@ catkin_package(
 ## Specify additional locations of header files
 ## Your package locations should be listed before other locations
 include_directories(
-# include
-# ${catkin_INCLUDE_DIRS}
+     include
+     ${catkin_INCLUDE_DIRS}
 )
 
 ## Declare a C++ library
-# add_library(${PROJECT_NAME}
-#   src/${PROJECT_NAME}/local_excavation.cpp
-# )
+add_library(${PROJECT_NAME}
+        src/ExcavationPlanningRos.cpp include/ExcavationPlanningRos.h src/ExcavationPlanning.cpp include/ExcavationPlanning.h)
 
 ## Add cmake target dependencies of the library
 ## as an example, code may need to be generated before libraries
@@ -168,18 +203,17 @@ include_directories(
 
 ## Mark libraries for installation
 ## See http://docs.ros.org/melodic/api/catkin/html/howto/format1/building_libraries.html
-# install(TARGETS ${PROJECT_NAME}
-#   ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-#   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-#   RUNTIME DESTINATION ${CATKIN_GLOBAL_BIN_DESTINATION}
-# )
+ install(TARGETS ${PROJECT_NAME}
+   ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+   RUNTIME DESTINATION ${CATKIN_GLOBAL_BIN_DESTINATION}
+ )
 
-## Mark cpp header files for installation
-# install(DIRECTORY include/${PROJECT_NAME}/
-#   DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
-#   FILES_MATCHING PATTERN "*.h"
-#   PATTERN ".svn" EXCLUDE
-# )
+# Mark cpp header files for installation
+ install(DIRECTORY include/${PROJECT_NAME}/
+   DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
+   FILES_MATCHING PATTERN "*.h"
+ )
 
 ## Mark other files for installation (e.g. launch and bag files, etc.)
 # install(FILES
@@ -193,10 +227,17 @@ include_directories(
 #############
 
 ## Add gtest based cpp test target and link libraries
-# catkin_add_gtest(${PROJECT_NAME}-test test/test_local_excavation.cpp)
-# if(TARGET ${PROJECT_NAME}-test)
-#   target_link_libraries(${PROJECT_NAME}-test ${PROJECT_NAME})
-# endif()
+if(CATKIN_ENABLE_TESTING)
+#  find_package(rostest REQUIRED)
+#  add_rostest_gtest(${PROJECT_NAME}_rostest test/test_local_excavation.launch 
+#         test/test_local_excavation.cpp)
+#  target_link_libraries(${PROJECT_NAME}_rostest 
+#         ${catkin_LIBRARIES})
+ # normal catkin test 
+ catkin_add_gtest(${PROJECT_NAME}_test test/test_local_excavation.cpp)
+ if(TARGET ${PROJECT_NAME}_test)
+   target_link_libraries(${PROJECT_NAME}_test ${PROJECT_NAME})
+ endif()
+endif()
 
-## Add folders to be run by python nosetests
-# catkin_add_nosetests(test)
+# Add folders to be run by python nosetests
