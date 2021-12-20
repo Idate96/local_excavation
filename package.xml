@@ -11,7 +11,7 @@
   <depend>grid_map_msgs</depend>
   <depend>grid_map_cv</depend>
   <depend>grid_map_pcl</depend>
-  <depend>grid_map_sdf</depend>>
+  <depend>grid_map_sdf</depend>
   <depend>grid_map_core</depend>
   <depend>m545_msgs</depend>
   <depend>roscpp</depend>
@@ -20,6 +20,9 @@
   <depend>kindr_ros</depend>
   <depend>signal_logger</depend>
   <depend>tinyxml_tools</depend>
+  <depend>tf2_ros</depend>
+  <depend>tf2_geometry_msgs</depend>
+  <depend>tf2</depend>
   <depend>curves</depend>
   <depend>loco_m545</depend>
   <depend>excavation_mapping</depend>
@@ -27,4 +30,5 @@
   <depend>grid_map_visualization</depend>
   <depend>liblapack-dev</depend>
   <depend>geometry_msgs</depend>
+
 </package>

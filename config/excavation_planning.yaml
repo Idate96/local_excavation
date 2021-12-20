@@ -1,0 +1,4 @@
+local_excavation:
+  local_map_size: [4, 6]
+  local_map_resolution: 0.2
+  local_map_position: [5.5, 0]
