@@ -29,19 +29,24 @@ class LocalPlanner {
   bool updateLocalMap();
   void publishLocalMap();
   void publishMarker(grid_map::Position3 position, std::string frameId) const;
-
+  // getters
+  Eigen::Vector3d getDiggingPoint() const { return diggingPoint_; };
+  Eigen::Vector3d getDiggingPointBaseFrame() const;
   // planning
-  grid_map::Position3 findExcavationPoint();
-  grid_map::Position3 findRandomExcavationPoint();
+  std::vector<Eigen::Vector3d> digStraightTrajectory(Eigen::Vector3d& base_digPosition);
+  std::vector<Eigen::Vector3d> digTrajectory(Eigen::Vector3d& base_digPosition);
+  bool findDiggingPoint();
+  bool findRandomDiggingPoint();
   grid_map::Position3 findDumpPoint();
+  double getVolume();
   bool completedWorkspace();
 
 private:
   std::unique_ptr<excavation_mapping::ExcavationMapping> excavationMappingPtr_;
   // sub-map representing the reachable workspace of the robot
   grid_map::GridMap localMap_ = grid_map::GridMap();
-  grid_map::Position3 excavationPoint_;
-  grid_map::Index excavationPointIndex_;
+  grid_map::Position3 diggingPoint_;
+  grid_map::Index diggingPointLocalIndex_;
   grid_map::Position3 dumpPoint_;
   grid_map::Index dumpPointIndex_;
 

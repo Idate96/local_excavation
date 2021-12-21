@@ -36,49 +36,24 @@ bool LocalPlanner::loadParameters() {
 };
 
 bool LocalPlanner::initialize(std::string designMapBag) {
-  ROS_INFO_STREAM("[LocalPlanner] Initializing the local planner");
-  ROS_INFO_STREAM("[LocalPlanner]: Loaded the following parameters:" << localMapSize_.at(0) << " " << localMapSize_.at(1));
   excavationMappingPtr_->initialize(designMapBag);
   localMap_.setFrameId("BASE");
-  // convert std::vector<double> to Eigen::Vector2d
   localMap_.add("elevation");
   localMap_.add("desired_elevation");
-  // print layers
-  geometry_msgs::TransformStamped transformStamped;
-  try {
-    transformStamped = tfBuffer_->lookupTransform("BASE", "BASE", ros::Time(0));
-  } catch (tf2::TransformException &ex) {
-    ROS_WARN("%s", ex.what());
-    return false;
-  }
-  Eigen::Affine3d transform = tf2::transformToEigen(transformStamped);
-  // print rotation
-  Eigen::Vector3d rotation = transform.rotation().eulerAngles(0, 1, 2);
-  ROS_INFO_STREAM("[LocalPlanner]: Loaded the following parameters:" << rotation.transpose());
-  Eigen::Vector3d world_localMapPosition = transform * Eigen::Vector3d(base_localMapPosition_[0], base_localMapPosition_[1], 0);
+  Eigen::Vector2d base_localMapPosition = Eigen::Vector2d(base_localMapPosition_[0], base_localMapPosition_[1]);
   localMap_.setGeometry(grid_map::Length(localMapSize_.at(0), localMapSize_.at(1)), localMapResolution_,
-                        world_localMapPosition.head(2));
-  // rotate local map
+                        base_localMapPosition.head(2));
   this->updateLocalMap();
   return true;
 };
 
+Eigen::Vector3d LocalPlanner::getDiggingPointBaseFrame() const {
+  Eigen::Vector3d diggingPointBaseFrame;
+  tf2::doTransform(diggingPoint_, diggingPointBaseFrame, tfBuffer_->lookupTransform("map", "BASE", ros::Time(0)));
+  return diggingPointBaseFrame;
+}
+
 bool LocalPlanner::updateLocalMap() {
-  // get the current world position from the base frame position using the tf2
-  geometry_msgs::TransformStamped transformStamped;
-  try {
-    transformStamped = tfBuffer_->lookupTransform("BASE", "BASE", ros::Time(0));
-  } catch (tf2::TransformException &ex) {
-    ROS_WARN("%s", ex.what());
-    return false;
-  }
-  Eigen::Affine3d transform = tf2::transformToEigen(transformStamped);
-  Eigen::Vector3d world_localMapPosition = transform * Eigen::Vector3d(base_localMapPosition_[0], base_localMapPosition_[1], 0);
-  // translate local map to the current position
-  localMap_.move(world_localMapPosition.head(2));
-  bool extendMap = false;
-  bool overwriteMap = true;
-  bool copyAllLayers = false;
   this->addDataFrom(localMap_, excavationMappingPtr_->gridMap_, {"elevation", "desired_elevation"});
   this->publishLocalMap();
   return true;
@@ -101,7 +76,6 @@ bool LocalPlanner::addDataFrom(grid_map::GridMap& map, const grid_map::GridMap& 
     return false;
   }
   Eigen::Affine3d transform = tf2::transformToEigen(transformStamped);
-
   // Copy data.
   for (grid_map::GridMapIterator iterator(map); !iterator.isPastEnd(); ++iterator) {
     if (map.isValid(*iterator)) continue;
@@ -126,7 +100,7 @@ void LocalPlanner::publishLocalMap(){
   localMapPublisher_.publish(message);
 }
 
-grid_map::Position3 LocalPlanner::findRandomExcavationPoint() {
+bool LocalPlanner::findRandomDiggingPoint() {
   // sample a (3, 1) vector from a gaussian with mean mu and std sigma
   // this is the mean of the gaussian
   // maybe use ros?
@@ -143,13 +117,39 @@ grid_map::Position3 LocalPlanner::findRandomExcavationPoint() {
   publishMarker(map_pos_exc, "map");
 //  publishMarker(base_pos_exc, "BASE");
   ROS_INFO_STREAM("[LocalPlanner]: base_pos_exc: " << base_pos_exc.transpose());
-  return grid_map::Position3(base_pos_exc(0), base_pos_exc(1), base_pos_exc(2));
+  // fill excavationPoint_
+  diggingPoint_ = grid_map::Position3(map_pos_exc(0), map_pos_exc(1), map_pos_exc(2));
+  return true;
 };
 
-//std::vector<Eigen::Vector3d> LocalPlanner::digTrajectory(Eigen::Vector3d base_digPos) {
+std::vector<Eigen::Vector3d> LocalPlanner::digStraightTrajectory(Eigen::Vector3d& base_digPosition){
+  // get the desired height from the local map
+  // get index of digging point
+  grid_map::Index index;
+  localMap_.getIndex(grid_map::Position(base_digPosition(0), base_digPosition(1)), index);
+  double desired_height = localMap_.at("desired_elevation", index);
+  Eigen::Vector3d base_startDigPosition = Eigen::Vector3d(base_digPosition(0), base_digPosition(1), desired_height);
+  // TODO: fix with proper trjectory length
+  // cabin frame is very convient to formulate the trajectory
+  Eigen::Vector3d cabin_endDigPosition = Eigen::Vector3d(base_localMapPosition_.at(0) - localMapSize_.at(0)/2, 0, desired_height);
+  Eigen::Vector3d base_endDigPosition;
+  tf2::doTransform(cabin_endDigPosition, base_endDigPosition, tfBuffer_->lookupTransform("BASE", "CABIN", ros::Time(0)));
+  // transform vectors from base to map
+  Eigen::Vector3d map_startDigPosition;
+  tf2::doTransform(base_startDigPosition, map_startDigPosition, tfBuffer_->lookupTransform("map", "BASE", ros::Time(0)));
+  Eigen::Vector3d map_endDigPosition;
+  tf2::doTransform(base_endDigPosition, map_endDigPosition, tfBuffer_->lookupTransform("map", "BASE", ros::Time(0)));
+  // create a vector of positions to dig
+  std::vector<Eigen::Vector3d> dig_positions;
+  dig_positions.push_back(map_startDigPosition);
+  dig_positions.push_back(map_endDigPosition);
+  return dig_positions;
+}
+
+//std::vector<Eigen::Vector3d> LocalPlanner::digTrajectory(Eigen::Vector3d& base_digPosition) {
 //    // create straight line from origin to start in base frame
 //    Eigen::Vector3d start_pos(0, 0, 0);
-//    Eigen::Vector3d end_pos(base_digPos(0), base_digPos(1), base_digPos(2));
+//    Eigen::Vector3d end_pos(base_digPosition(0), base_digPosition(1), base_digPosition(2));
 //    Eigen::Vector3d dir = end_pos - start_pos;
 //    dir.normalize();
 //    // create a vector of points along the line
@@ -157,10 +157,8 @@ grid_map::Position3 LocalPlanner::findRandomExcavationPoint() {
 //    for (int i = 0; i < 10; i++) {
 //        trajectory.push_back(start_pos + dir * i);
 //    }
-//
 //    // create line iterator for grid mpa that follow the trajectory
-//    grid_map::LineIterator it(excavationMappingPtr_->gridMap_(), start_pos, end_pos);
-//
+//    grid_map::LineIterator it(excavationMappingPtr_->gridMap_, start_pos, end_pos);
 //}
 
 
