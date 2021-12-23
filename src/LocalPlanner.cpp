@@ -133,19 +133,37 @@ std::vector<Eigen::Vector3d> LocalPlanner::digStraightTrajectory(Eigen::Vector3d
   // cabin frame is very convient to formulate the trajectory
   Eigen::Vector3d cabin_endDigPosition = Eigen::Vector3d(base_localMapPosition_.at(0) - localMapSize_.at(0)/2, 0, desired_height);
   Eigen::Vector3d base_endDigPosition;
-  tf2::doTransform(cabin_endDigPosition, base_endDigPosition, tfBuffer_->lookupTransform("BASE", "CABIN", ros::Time(0)));
+  tf2::doTransform(base_endDigPosition, cabin_endDigPosition, tfBuffer_->lookupTransform("BASE", "CABIN", ros::Time(0)));
   // transform vectors from base to map
-  Eigen::Vector3d map_startDigPosition;
-  tf2::doTransform(base_startDigPosition, map_startDigPosition, tfBuffer_->lookupTransform("map", "BASE", ros::Time(0)));
-  Eigen::Vector3d map_endDigPosition;
-  tf2::doTransform(base_endDigPosition, map_endDigPosition, tfBuffer_->lookupTransform("map", "BASE", ros::Time(0)));
-  // create a vector of positions to dig
-  std::vector<Eigen::Vector3d> dig_positions;
-  dig_positions.push_back(map_startDigPosition);
-  dig_positions.push_back(map_endDigPosition);
-  return dig_positions;
+//  Eigen::Vector3d map_startDigPosition;
+//  tf2::doTransform(map_startDigPosition, base_startDigPosition, tfBuffer_->lookupTransform("map", "BASE", ros::Time(0)));
+//  Eigen::Vector3d map_endDigPosition;
+//  tf2::doTransform(map_endDigPosition, base_endDigPosition, tfBuffer_->lookupTransform("map", "BASE", ros::Time(0)));
+//  // create a vector of positions to dig
+//  std::vector<Eigen::Vector3d> dig_positions;
+//  dig_positions.push_back(map_startDigPosition);
+//  dig_positions.push_back(map_endDigPosition);
+  std::vector<Eigen::Vector3d> base_digPositions = {base_startDigPosition, base_endDigPosition};
+  return base_digPositions;
 }
 
+Eigen::Vector3d LocalPlanner::digStraight(Eigen::Vector3d& base_digPosition){
+  // get the desired height from the local map
+  // get index of digging point
+  Eigen::Vector3d cabin_endDigPosition = Eigen::Vector3d(base_localMapPosition_.at(0) - localMapSize_.at(0)/3, 0, 0);
+  Eigen::Vector3d base_endDigPosition;
+  tf2::doTransform(base_endDigPosition, cabin_endDigPosition, tfBuffer_->lookupTransform("BASE", "CABIN", ros::Time(0)));
+  // transform vectors from base to map
+  //  Eigen::Vector3d map_startDigPosition;
+  //  tf2::doTransform(map_startDigPosition, base_startDigPosition, tfBuffer_->lookupTransform("map", "BASE", ros::Time(0)));
+  //  Eigen::Vector3d map_endDigPosition;
+  //  tf2::doTransform(map_endDigPosition, base_endDigPosition, tfBuffer_->lookupTransform("map", "BASE", ros::Time(0)));
+  //  // create a vector of positions to dig
+  //  std::vector<Eigen::Vector3d> dig_positions;
+  //  dig_positions.push_back(map_startDigPosition);
+  //  dig_positions.push_back(map_endDigPosition);
+  return base_endDigPosition;
+}
 //std::vector<Eigen::Vector3d> LocalPlanner::digTrajectory(Eigen::Vector3d& base_digPosition) {
 //    // create straight line from origin to start in base frame
 //    Eigen::Vector3d start_pos(0, 0, 0);

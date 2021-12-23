@@ -34,7 +34,9 @@ class LocalPlanner {
   Eigen::Vector3d getDiggingPointBaseFrame() const;
   // planning
   std::vector<Eigen::Vector3d> digStraightTrajectory(Eigen::Vector3d& base_digPosition);
+
   std::vector<Eigen::Vector3d> digTrajectory(Eigen::Vector3d& base_digPosition);
+  Eigen::Vector3d digStraight(Eigen::Vector3d& base_digPosition);
   bool findDiggingPoint();
   bool findRandomDiggingPoint();
   grid_map::Position3 findDumpPoint();
