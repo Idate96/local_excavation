@@ -5,20 +5,27 @@
 #include <tf2_ros/transform_listener.h>
 #include <geometry_msgs/TransformStamped.h>
 #include <eigen3/Eigen/Dense>
+#include "loco_m545/common/typedefs.hpp"
 
 namespace local_excavation {
+
+class Trajectory{
+ public:
+  std::vector<Eigen::Vector3d> positions;
+  std::vector<Eigen::Quaterniond> orientations;
+  double distanceFromBase = 0;
+  double relativeHeading = 0;
+  double scoopedVolume = 0;
+  double workspaceVolume = 0;
+};
 
 class LocalPlanner {
 
  public:
   LocalPlanner(std::unique_ptr<excavation_mapping::ExcavationMapping> excavationMapping);
-  // ros
-  ros::NodeHandle nh_;
-  ros::Publisher markerPublisher_;
-  // transform listener
-  std::shared_ptr<tf2_ros::Buffer> tfBuffer_;
-  std::shared_ptr<tf2_ros::TransformListener> tfListener_;
 
+
+  // rectangle in cabin frame centered along the shovel
 
   bool initialize(std::string designMapBag);
   bool loadParameters();
@@ -26,43 +33,172 @@ class LocalPlanner {
    * Update the submap and the global map using the measured elevation map.
    * @return
    */
-  bool updateLocalMap();
-  void publishLocalMap();
-  void publishMarker(grid_map::Position3 position, std::string frameId) const;
+  bool updatePlanningMap();
+  void setLocalMap(grid_map::GridMap& localMap);
+
   // getters
   Eigen::Vector3d getDiggingPoint() const { return diggingPoint_; };
   Eigen::Vector3d getDiggingPointBaseFrame() const;
+  Eigen::Vector3d findShovelDesiredOrientation(Eigen::Vector3d& world_diggingPoint, Eigen::Vector3d& diggingDirection);
+  // get digging direction ?
   // planning
-  std::vector<Eigen::Vector3d> digStraightTrajectory(Eigen::Vector3d& base_digPosition);
+  std::vector<Eigen::Vector3d> getDigStraightTrajectory(Eigen::Vector3d& diggingPoint);
+  Eigen::Vector3d findDiggingPointLocalMap();
+  Eigen::Vector3d findDiggingPointTrack();
+  Eigen::Vector3d findDumpPoint();
+  Eigen::Vector3d findDumpingPointTrack();
+
+  double objectiveDistanceAndElevation(grid_map::Position& base_diggingPoint);
 
   std::vector<Eigen::Vector3d> digTrajectory(Eigen::Vector3d& base_digPosition);
+  void optimizeTrajectory();
+  Trajectory computeTrajectory(Eigen::Vector3d& w_P_wd);
+  double volumeObjective(Trajectory trajectory);
+  loco_m545::RotationQuaternion findOrientationWorldToShovel(double shovelRollAngle, double shovelPitchAngle,
+                                                                           double shovelYawAngle);
+  Trajectory getDigTrajectoryWorldFrame(Eigen::Vector3d& w_P_wd);
+  // orientation shovel wrt world frame
+  Eigen::Quaterniond C_sw(double shovelRollAngle, double shovelPitchAngle, double shovelYawAngle);
+  Eigen::Quaterniond get_R_sw(double shovelRollAngle, double shovelPitchAngle,
+                                                             double shovelYawAngle);
+
+  // dump point stuff
+  Eigen::Vector3d getDumpPoint();
   Eigen::Vector3d digStraight(Eigen::Vector3d& base_digPosition);
   bool findDiggingPoint();
   bool findRandomDiggingPoint();
-  grid_map::Position3 findDumpPoint();
+  void findDumpPoint(int zoneId);
   double getVolume();
-  bool completedWorkspace();
+  bool isDigZoneComplete();
+  bool isLateralFrontZoneComplete(int zoneId);
+  void setDigTrajectory(Trajectory& trajectory) {digTrajectory_ = trajectory;};
+  Trajectory getDigTrajectory() {return digTrajectory_;};
+  Trajectory getOptimalTrajectory() {
+    this->publishTrajectoryPoses(optimalDigTrajectory_.positions, optimalDigTrajectory_.orientations);
+    return optimalDigTrajectory_;
+  };
+
+  Eigen::Vector3d projectVectorOntoSubspace(Eigen::Vector3d& vector, Eigen::Matrix3Xd& subspaceBasis);
+
+  // ros publishers
+  void publishPlanningMap();
+  void publishMarker(grid_map::Position3 position, std::string frameId) const;
+  void publishMarkersTrajectory(std::vector<Eigen::Vector3d> trajectory, std::string frameId) const;
+  void publishVector(Eigen::Vector3d position, Eigen::Vector3d direction, std::string frameId) const;
+  void publishNormal(Eigen::Vector3d position, Eigen::Vector3d normal, std::string frameId) const;
+  void publishDesiredShovelOrientation(Eigen::Vector3d position, Eigen::Vector3d direction, std::string frameId) const;
+  void publishProjectedVector(Eigen::Vector3d position, Eigen::Vector3d vector, std::string frameId) const;
+  void publishJointVector(Eigen::Vector3d position, Eigen::Vector3d vector, std::string frameId) const;
+  void publishDesiredShovelPose(Eigen::Vector3d value, Eigen::Quaterniond C_ws) const;
+  void publishVectors(std::vector<Eigen::Vector3d> vectors, std::vector<Eigen::Vector3d> directions, std::string frameId) const;
+  void publishTrajectoryPoses(std::vector<Eigen::Vector3d> poses, std::vector<Eigen::Quaterniond> orientations) const;
+  void publishShovelPoints(Eigen::Vector3d& shovelRightContactPoint, Eigen::Vector3d& shovelLeftContactPoint);
+  void publishWorkspacePts(std::vector<Eigen::Vector2d> workspacePts, std::string frameId);
+  void publishHeading(Eigen::Vector3d position, Eigen::Vector3d direction, std::string frameId) const;
+  void publishShovelFilter(std::vector<Eigen::Vector2d> workspacePts, std::string frameId);
+
+
+  std::unique_ptr<excavation_mapping::ExcavationMapping> excavationMappingPtr_;
+  void addPlanningZonesToMap(std::vector<double> values);
+  void createPlanningZones();
+  std::vector<Eigen::Vector2d> getDiggingPatchVertices();
+  std::vector<Eigen::Vector2d> getLeftFrontPatch();
+  std::vector<Eigen::Vector2d> getLeftCircularFrontSegmentPatch();
+  std::vector<Eigen::Vector2d> getRightFrontPatch();
+  std::vector<Eigen::Vector2d> getRightCircularFrontSegmentPatch();
+  std::vector<Eigen::Vector2d> getLeftBackPatch();
+  std::vector<Eigen::Vector2d> getLeftCircularBackSegmentPatch();
+  std::vector<Eigen::Vector2d> getRightBackPatch();
+  std::vector<Eigen::Vector2d> getRightCircularBackSegmentPatch();
+  void syncLayers();
 
 private:
-  std::unique_ptr<excavation_mapping::ExcavationMapping> excavationMappingPtr_;
   // sub-map representing the reachable workspace of the robot
   grid_map::GridMap localMap_ = grid_map::GridMap();
+  grid_map::GridMap planningMap_ = grid_map::GridMap();
+  // var to check if trackMap_ or localMap_ is used
+  bool trackMapUsed_ = false;
+  double shovelWidth_ = 0.7;
+  double shovelLength_ = 1.5;
+  double trackWidth_ = 0.8 * shovelWidth_;
+
   grid_map::Position3 diggingPoint_;
   grid_map::Index diggingPointLocalIndex_;
   grid_map::Position3 dumpPoint_;
   grid_map::Index dumpPointIndex_;
 
+  // trajectory
+  Trajectory digTrajectory_;
+  Trajectory optimalDigTrajectory_;
+  Trajectory dumpTrajectory_;
+
   // ros
-  ros::Publisher localMapPublisher_;
+  ros::NodeHandle nh_;
+  ros::Publisher planningMapPublisher_;
+  ros::Publisher markerPublisher_;
+  ros::Publisher markersTrajectoryPublisher_;
+  ros::Publisher penetrationDirectionPublisher_;
+  ros::Publisher diggingDirectionPublisher_;
+  ros::Publisher normalPublisher_;
+  ros::Publisher desiredShovelOrientationPublisher_;
+  ros::Publisher projectedVectorPublisher_;
+  ros::Publisher jointVectorPublisher_;
+  ros::Publisher desiredPosePublisher_;
+  ros::Publisher vectorsPublisher_;
+  ros::Publisher trajectoryPosesPublisher_;
+  ros::Publisher shovelPointsPublisher_;
+  ros::Publisher workspacePtsPublisher_;
+  ros::Publisher headingPublisher_;
+  ros::Publisher polygonPublisher_;
+  ros::Publisher shovelFilterPublisher_;
+
+  // transform listener
+  std::shared_ptr<tf2_ros::Buffer> tfBuffer_;
+  std::shared_ptr<tf2_ros::TransformListener> tfListener_;
 
   // update local map
+  using unique_lock = boost::unique_lock<boost::shared_mutex>;
+  using shared_lock = boost::shared_lock<boost::shared_mutex>;
+  boost::shared_mutex mapMutex_;
   bool addDataFrom(grid_map::GridMap& map, const grid_map::GridMap& other, std::vector<std::string> layers);
+  std::vector<grid_map::Polygon> planningZones_;
+  grid_map::Polygon digZone_;
+  grid_map::Polygon dumpingLeftFrontZone_;
+  grid_map::Polygon dumpingRightFrontZone_;
+  grid_map::Polygon dumpingLeftBackZone_;
+  grid_map::Polygon dumpingRightBackZone_;
+
+  void createShovelFilter();
+  std::vector<Eigen::Vector2d> shovelFilter_;
+  // initialize the iterator
+  int dumpZoneId_;
+
+  // optimization weight
+  double volumeWeight_;
+  double distanceWeight_;
+  double headingWeight_;
 
   // parameters
-  double localMapResolution_;
-  std::vector<double> localMapSize_;
-  std::vector<double> world_localMapPosition_;
-  std::vector<double> base_localMapPosition_;
+  double dumpAtHeight_;
+  double radialOffset_ = 0.2;
+  double heightPrecision_;
+  // condition for termination
+  double volumeThreshold_;
+  double heightThreshold_;
+  double volumeDumpThreshold_ = 0.5 * shovelWidth_ * shovelLength_;
+  // the accurary required for dirt handling is lower than the accuracy of digging
+  double volumeDirtThreshold_;
+  double heightDirtThreshold_;
+  // max volume in the shovel
+  double maxVolume_;
+  // index to keep track
+  double circularWorkspaceOuterRadius_;
+  double circularWorkspaceInnerRadius_;
+  double dumpingZoneOuterRadius_;
+  double dumpingZoneInnerRadius_;
+  double minDistanceShovelToBase_;
+  double circularWorkspaceAngle_;
+  int currentTrackId = 0;
 
 };
 

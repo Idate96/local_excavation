@@ -1,4 +1,17 @@
 local_excavation:
-  local_map_size: [4, 6]
-  local_map_resolution: 0.2
-  local_map_position: [5.5, 0]
+  height_precision: 0.05 # meters
+  outer_digging_radius: 7.0 # in meters
+  inner_digging_radius: 5.0 # meters
+  outer_dumping_radius:  7.0
+  inner_dumping_radius:  4.5
+  min_distance_shovel_to_base: 4.0 # in meters
+  workspace_angle: 1.75 # radians
+  max_volume: 0.6 # soil volume in m^3
+  volume_weight: 1
+  distance_weight: 0.005
+  heading_weight: 0.05
+  dump_height: 0.8 # in meters
+  volume_dirt_threshold: 1.2
+  volume_height_threshold: 0.5
+  volume_threshold: 0.5
+  height_threshold: 0.1
