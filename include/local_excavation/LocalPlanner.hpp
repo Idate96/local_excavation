@@ -15,8 +15,8 @@ class Trajectory{
   std::vector<Eigen::Quaterniond> orientations;
   double distanceFromBase = 0;
   double relativeHeading = 0;
-  double scoopedVolume = 0;
-  double workspaceVolume = 0;
+  double scoopedVolume = -2;
+  double workspaceVolume = -2;
 };
 
 class LocalPlanner {
@@ -45,14 +45,14 @@ class LocalPlanner {
   std::vector<Eigen::Vector3d> getDigStraightTrajectory(Eigen::Vector3d& diggingPoint);
   Eigen::Vector3d findDiggingPointLocalMap();
   Eigen::Vector3d findDiggingPointTrack();
-  Eigen::Vector3d findDumpPoint();
+//  Eigen::Vector3d findDumpPoint();
   Eigen::Vector3d findDumpingPointTrack();
 
   double objectiveDistanceAndElevation(grid_map::Position& base_diggingPoint);
 
   std::vector<Eigen::Vector3d> digTrajectory(Eigen::Vector3d& base_digPosition);
   void optimizeTrajectory();
-  Trajectory computeTrajectory(Eigen::Vector3d& w_P_wd);
+  Trajectory computeTrajectory(Eigen::Vector3d& w_P_wd, std::string targetLayer);
   double volumeObjective(Trajectory trajectory);
   loco_m545::RotationQuaternion findOrientationWorldToShovel(double shovelRollAngle, double shovelPitchAngle,
                                                                            double shovelYawAngle);
@@ -61,16 +61,24 @@ class LocalPlanner {
   Eigen::Quaterniond C_sw(double shovelRollAngle, double shovelPitchAngle, double shovelYawAngle);
   Eigen::Quaterniond get_R_sw(double shovelRollAngle, double shovelPitchAngle,
                                                              double shovelYawAngle);
-
+  double getDumpingScore(int zoneId);
   // dump point stuff
   Eigen::Vector3d getDumpPoint();
   Eigen::Vector3d digStraight(Eigen::Vector3d& base_digPosition);
   bool findDiggingPoint();
   bool findRandomDiggingPoint();
-  void findDumpPoint(int zoneId);
+  void findDumpPoint();
   double getVolume();
-  bool isDigZoneComplete();
+  // zones functions
+  bool isDigZoneComplete(int zoneId);
+  bool isZoneActive(int digZoneId, bool isDigging);
+  bool isLocalWorkspaceComplete();
+  void updateWorkingArea();
+  void updateDugZones();
+  // select dumping zone based on this score
+  void sdfDumpingAreas();
   bool isLateralFrontZoneComplete(int zoneId);
+
   void setDigTrajectory(Trajectory& trajectory) {digTrajectory_ = trajectory;};
   Trajectory getDigTrajectory() {return digTrajectory_;};
   Trajectory getOptimalTrajectory() {
@@ -79,6 +87,8 @@ class LocalPlanner {
   };
 
   Eigen::Vector3d projectVectorOntoSubspace(Eigen::Vector3d& vector, Eigen::Matrix3Xd& subspaceBasis);
+  void markDigDumpAreas();
+  void resetDigDumpAreas();
 
   // ros publishers
   void publishPlanningMap();
@@ -96,11 +106,15 @@ class LocalPlanner {
   void publishWorkspacePts(std::vector<Eigen::Vector2d> workspacePts, std::string frameId);
   void publishHeading(Eigen::Vector3d position, Eigen::Vector3d direction, std::string frameId) const;
   void publishShovelFilter(std::vector<Eigen::Vector2d> workspacePts, std::string frameId);
-
+  void publishWorkingArea();
 
   std::unique_ptr<excavation_mapping::ExcavationMapping> excavationMappingPtr_;
   void addPlanningZonesToMap(std::vector<double> values);
   void createPlanningZones();
+  void choosePlanningZones();
+  void setWorkspacePose(Eigen::Vector3d& workspacePos, Eigen::Quaterniond& workspaceOrientation);
+  double distanceZones(int zoneId1, int zoneId2);
+
   std::vector<Eigen::Vector2d> getDiggingPatchVertices();
   std::vector<Eigen::Vector2d> getLeftFrontPatch();
   std::vector<Eigen::Vector2d> getLeftCircularFrontSegmentPatch();
@@ -121,6 +135,11 @@ private:
   double shovelWidth_ = 0.7;
   double shovelLength_ = 1.5;
   double trackWidth_ = 0.8 * shovelWidth_;
+
+  // local workspace
+  bool isWorkspacePoseSet_ = false;
+  Eigen::Vector3d workspacePos_ = Eigen::Vector3d::Zero();
+  Eigen::Quaterniond workspaceOrientation_ = Eigen::Quaterniond::Identity();
 
   grid_map::Position3 diggingPoint_;
   grid_map::Index diggingPointLocalIndex_;
@@ -151,6 +170,7 @@ private:
   ros::Publisher headingPublisher_;
   ros::Publisher polygonPublisher_;
   ros::Publisher shovelFilterPublisher_;
+  ros::Publisher workingAreaPublisher_;
 
   // transform listener
   std::shared_ptr<tf2_ros::Buffer> tfBuffer_;
@@ -162,6 +182,7 @@ private:
   boost::shared_mutex mapMutex_;
   bool addDataFrom(grid_map::GridMap& map, const grid_map::GridMap& other, std::vector<std::string> layers);
   std::vector<grid_map::Polygon> planningZones_;
+  std::vector<Eigen::Vector2d> zoneCenters_;
   grid_map::Polygon digZone_;
   grid_map::Polygon dumpingLeftFrontZone_;
   grid_map::Polygon dumpingRightFrontZone_;
@@ -170,8 +191,13 @@ private:
 
   void createShovelFilter();
   std::vector<Eigen::Vector2d> shovelFilter_;
-  // initialize the iterator
+
+  // current dig and dump zone
   int dumpZoneId_;
+  int digZoneId_;
+
+  // boolean to indicate whether a reset is needed
+  bool createNewZones_ = true;
 
   // optimization weight
   double volumeWeight_;
@@ -179,16 +205,36 @@ private:
   double headingWeight_;
 
   // parameters
+  // areas with more than this ratio (dug area / total area) of the total area are considered not active
+  double inactiveAreaRatio_;
+  double excavationAreaRatio_;
+  // selection fo dumping workspace
+  double digDumpDistanceWeight_;
+  double xBiasWeight_;
+  double yBiasWeight_;
+  double dumpingZoneDistanceWeight_;
+
+  // dumping spot selection
   double dumpAtHeight_;
   double radialOffset_ = 0.2;
   double heightPrecision_;
+  double xDumpWeight_;
+  double yDumpWeight_;
+  double dumpCellsWeight_;
   // condition for termination
   double volumeThreshold_;
   double heightThreshold_;
+  double missingCellsThreshold_;
   double volumeDumpThreshold_ = 0.5 * shovelWidth_ * shovelLength_;
+  // we don't account the initial volume that goes into the shovel in the penetration phase
+  // todo: account properly for it
+  double shovelVolumeBonus_;
   // the accurary required for dirt handling is lower than the accuracy of digging
   double volumeDirtThreshold_;
   double heightDirtThreshold_;
+  double heightDigAreaThreshold_;
+  double volumeDirtWeight_;
+  double heightDumpThreshold_;
   // max volume in the shovel
   double maxVolume_;
   // index to keep track
@@ -199,6 +245,8 @@ private:
   double minDistanceShovelToBase_;
   double circularWorkspaceAngle_;
   int currentTrackId = 0;
+  // param to mark working areas that you can't step over
+  double heightTraversableThreshold_;
 
 };
 

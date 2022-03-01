@@ -2,16 +2,33 @@ local_excavation:
   height_precision: 0.05 # meters
   outer_digging_radius: 7.0 # in meters
   inner_digging_radius: 5.0 # meters
-  outer_dumping_radius:  7.0
-  inner_dumping_radius:  4.5
-  min_distance_shovel_to_base: 4.0 # in meters
-  workspace_angle: 1.75 # radians
+  outer_dumping_radius:  6.0
+  inner_dumping_radius:  5.5
+  min_distance_shovel_to_base: 3.5 # in meters
+  workspace_angle: 1.25 # radians
   max_volume: 0.6 # soil volume in m^3
   volume_weight: 1
   distance_weight: 0.005
   heading_weight: 0.05
-  dump_height: 0.8 # in meters
-  volume_dirt_threshold: 1.2
-  volume_height_threshold: 0.5
-  volume_threshold: 0.5
-  height_threshold: 0.1
+  dump_height: 1.0 # in meters
+  volume_dirt_threshold: 2.0
+  height_dirt_threshold: 0.1
+  height_dump_threshold: 1.2
+  volume_threshold: 0.01
+  height_threshold: 0.03
+  num_cells_threshold: 0.01
+  inactive_area_ratio: 0.95
+  active_area_ratio: 0.05
+  dumping_distance_weight: 0.1
+  dig_dump_distance_weight: 1.
+  x_bias_weight: -1.
+  y_bias_weight: 1.
+  excavation_area_ratio: 0.1
+  x_dump_weight: 1.
+  y_dump_weight: 2.
+  dump_cells_weight: 0.1
+  height_traversable_threshold: 0.2
+  bonus_volume: 0.00 # m3
+  missing_cells_threshold: 0.05
+  height_dig_area_threshold: 0.1
+  volume_dirt_weight: -1

@@ -11,6 +11,7 @@
 #include <geometry_msgs/PoseStamped.h>
 #include "local_excavation/planning_utils.h"
 #include <eigen3/Eigen/Dense>
+#include "grid_map_sdf/SignedDistanceField.hpp"
 
 namespace local_excavation {
 
@@ -37,14 +38,15 @@ LocalPlanner::LocalPlanner(std::unique_ptr<excavation_mapping::ExcavationMapping
   headingPublisher_ = nh_.advertise<visualization_msgs::Marker>("/local_excavation/heading", 1, true);
   polygonPublisher_ = nh_.advertise<geometry_msgs::PolygonStamped>("/local_excavation/polygon", 1, true);
   shovelFilterPublisher_ = nh_.advertise<visualization_msgs::MarkerArray>("/local_excavation/shovel_filter", 1, true);
+  workingAreaPublisher_ = nh_.advertise<grid_map_msgs::GridMap>("/local_excavation/traversable_area", 1, true);
   // load the parameters
   this->loadParameters();
 };
 
 bool LocalPlanner::loadParameters() {
   bool loaded = nh_.param<double>("/local_excavation/height_precision", heightPrecision_, 0.1) &&
-                nh_.param<double>("/local_excavation/inner_digging_radius", circularWorkspaceOuterRadius_, 6) &&
-                nh_.param<double>("/local_excavation/outer_digging_radius", circularWorkspaceInnerRadius_, 8) &&
+                nh_.param<double>("/local_excavation/inner_digging_radius", circularWorkspaceInnerRadius_, 6) &&
+                nh_.param<double>("/local_excavation/outer_digging_radius", circularWorkspaceOuterRadius_, 8) &&
                 nh_.param<double>("/local_excavation/inner_dumping_radius", dumpingZoneInnerRadius_ , 4.5) &&
                 nh_.param<double>("/local_excavation/outer_dumping_radius", dumpingZoneOuterRadius_, 8) &&
                 nh_.param<double>("/local_excavation/min_distance_shovel_to_base", minDistanceShovelToBase_, 3.5) &&
@@ -57,7 +59,22 @@ bool LocalPlanner::loadParameters() {
                 nh_.param<double>("/local_excavation/volume_dirt_threshold", volumeDirtThreshold_, 0.1) &&
                 nh_.param<double>("/local_excavation/height_dirt_threshold", heightDirtThreshold_, 0.5) &&
                 nh_.param<double>("/local_excavation/volume_threshold", volumeThreshold_, 0.5) &&
-                nh_.param<double>("/local_excavation/height_threshold", heightThreshold_, 0.5);
+                nh_.param<double>("/local_excavation/height_threshold", heightThreshold_, 0.5) &&
+                nh_.param<double>("/local_excavation/inactive_area_ratio", inactiveAreaRatio_, .5) &&
+                nh_.param<double>("/local_excavation/dumping_distance_weight", dumpingZoneDistanceWeight_, .5) &&
+                nh_.param<double>("/local_excavation/dig_dump_distance_weight", digDumpDistanceWeight_, 1.) &&
+                nh_.param<double>("/local_excavation/x_bias_weight", xBiasWeight_, 1.) &&
+                nh_.param<double>("/local_excavation/y_bias_weight", yBiasWeight_, 1.) &&
+                nh_.param<double>("/local_excavation/excavation_area_ratio", excavationAreaRatio_, .1) &&
+                nh_.param<double>("/local_excavation/x_dump_weight", xDumpWeight_, -1.) &&
+                nh_.param<double>("/local_excavation/y_dump_weight", yDumpWeight_, 1.) &&
+                nh_.param<double>("/local_excavation/dump_cells_weight", dumpCellsWeight_, 0.1) &&
+                nh_.param<double>("/local_excavation/height_traversable_threshold", heightTraversableThreshold_, 0.5) &&
+                nh_.param<double>("/local_excavation/bonus_volume", shovelVolumeBonus_, 0.05) &&
+                nh_.param<double>("/local_excavation/missing_cells_threshold", missingCellsThreshold_, 0.04) &&
+                nh_.param<double>("/local_excavation/height_dig_area_threshold", heightDigAreaThreshold_, 0.05) &&
+                nh_.param<double>("/local_excavation/volume_dirt_weight", volumeDirtWeight_, -0.5) &&
+                nh_.param<double>("/local_excavation/height_dump_threshold", heightDumpThreshold_, 1.1);
 
   if (!loaded) {
     ROS_ERROR("[LocalPlanner]: Could not load parameters for local planner");
@@ -108,23 +125,36 @@ bool LocalPlanner::initialize(std::string designMapBag) {
   planningMap_.add("desired_elevation", 0);
   planningMap_.add("planning_elevation", 0);
   planningMap_.add("original_elevation", 0);
+  planningMap_.add("excavation_mask", 0);
+  planningMap_.add("dumping_distance", 0);
   planningMap_.add("planning_zones", 0);
+  // this is updated as we go.
+  planningMap_.add("dug_area", 0);
+  planningMap_.add("working_area", 0);
+  // mostly for debugging
+  planningMap_.add("active_dig_zones", 0);
+  planningMap_.add("active_dump_zones", 0);
   planningMap_.add("cost", 0);
   planningMap_["elevation"] = excavationMappingPtr_->gridMap_["elevation"];
-  planningMap_["original_elevation"] = excavationMappingPtr_->gridMap_["elevation"];
+  planningMap_["original_elevation"] = excavationMappingPtr_->gridMap_["original_elevation"];
+  planningMap_["excavation_mask"] = excavationMappingPtr_->gridMap_["excavation_mask"];
   planningMap_["desired_elevation"] = excavationMappingPtr_->gridMap_["desired_elevation"];
   planningMap_["planning_elevation"] = excavationMappingPtr_->gridMap_["elevation"];
 
   lock.unlock();
 
-  this->createPlanningZones();
+//  this->createPlanningZones();
+//  this->updateDugZones();
+//  this->choosePlanningZones();
   this->createShovelFilter();
 //    std::thread planningThread_ = std::thread(&LocalPlanner::createPlanningZones, this);
   // detach the thread
 //  planningThread_.detach();
-  this->updatePlanningMap();
+//  this->updateWorkingArea();
+//  this->updatePlanningMap();
   return true;
 };
+
 
 Eigen::Vector3d LocalPlanner::getDiggingPointBaseFrame() const {
   Eigen::Vector3d diggingPointBaseFrame;
@@ -293,12 +323,14 @@ loco_m545::RotationQuaternion LocalPlanner::findOrientationWorldToShovel(double 
 
 
 
-Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd){
+Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd, std::string targetLayer){
   // w_P_wd is the digging point
   // point below the surface
   grid_map::Position wg_P_wd(w_P_wd(0), w_P_wd(1));
+  grid_map::Index wg_index;
+  planningMap_.getIndex(wg_P_wd, wg_index);
   double elevation = excavationMappingPtr_->getElevation(wg_P_wd);
-  double desiredElevation = excavationMappingPtr_->getDesiredElevation(wg_P_wd);
+  double desiredElevation = planningMap_.at(targetLayer, wg_index);
   if (elevation - desiredElevation < heightPrecision_) {
 //    ROS_WARN("[LocalPlanner]: digging point is not below the surface");
     return Trajectory();
@@ -345,9 +377,9 @@ Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd){
 
 //  ROS_INFO_STREAM("[LocalPlanner]: True boom heading " << shovelYaw);
   // transform the yaw angle into a direction vector
-  // get perpendicular vector in 2D
+  // get perpendicular vector in 2D (is it 2D?)
   Eigen::Vector3d w_P_dba = (-w_P_wd + w_P_wba).normalized();
-  this->publishHeading(w_P_wd, w_P_dba, "map");
+//  this->publishHeading(w_P_wd, w_P_dba, "map");
 
 
   // this takes care of the fact that we have a penetration phase
@@ -355,7 +387,7 @@ Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd){
   // penetration vector
   Eigen::Vector3d w_P_dd1 = Eigen::Vector3d(0, 0, 0);
   // vertical displacement is the difference between the desired elevation and the elevation of the digging point
-  w_P_dd1(2) = desiredElevation - elevation;
+  w_P_dd1(2) = std::max(desiredElevation - elevation, -0.35); // fix maximal depth
   // these angles are all wrt the digging direction
   // for flat ground the desired attitude angle corresponds does not
   double slopeAngle = 0;
@@ -368,21 +400,21 @@ Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd){
   double alpha = 0;
   double diggingPathAngle = desiredLocalAttitudeAngle - alpha;
   double horizontalDisplacement = desiredElevation/tan(diggingPathAngle);
-  w_P_dd1.head(2) = w_P_dba * horizontalDisplacement ;
+  w_P_dd1.head(2) = w_P_dba * horizontalDisplacement;
   //  ROS_INFO_STREAM("[LocalPlanner]: digging vector in world frame " << w_P_dd1.transpose());
-  //  ROS_INFO_STREAM("[LocalPlanner]: horizontal displacement " << horizontalDisplyaacement);
+  //  ROS_INFO_STREAM("[LocalPlanner]: horizontal displacement " << horizontalDisplacement);
 
   Eigen::Vector3d w_P_wd1 = w_P_wd_off + w_P_dd1;
   Eigen::Quaterniond R_ws_d1 = this->get_R_sw(0, -attitudeAngle, heading);
 
-  this->publishVector(w_P_wd, w_P_dd1, "map");
+//  this->publishVector(w_P_wd, w_P_dd1, "map");
 
   bool valid = true;
   std::vector<Eigen::Vector3d> digPoints;
   std::vector<Eigen::Quaterniond> digOrientations;
   double targetAttitude = M_PI / 2;
   Eigen::Vector3d w_P_wd_current = w_P_wd1;
-  double stepSize = planningMap_.getResolution() / 2;
+  double stepSize = planningMap_.getResolution() / 3;
   double volume = 0;
   double workspaceVolume = 0;
   grid_map::Matrix& data = planningMap_["planning_elevation"];
@@ -392,6 +424,7 @@ Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd){
   Eigen::Vector3d s_posRightShovel_cr(0.0, -0.75, 0.0);
   // now we march with step size of planningMap resolution / 2 in the direction of the boom direction until the trajectory is not valid anymore
   int numSteps = 0;
+  volume += shovelVolumeBonus_;
   while (valid){
     Eigen::Vector3d w_P_next = w_P_wd_current + stepSize * w_P_dba;
     // position of the left point of the shovel (l) in world frame
@@ -411,20 +444,29 @@ Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd){
                                            (w_posLeftShovel_wl.block<2, 1>(0, 0) - w_posRightShovel_wr.block<2, 1>(0, 0)).norm() *
                                            (iteratorPosition - w_posRightShovel_wr.block<2, 1>(0, 0)).norm();
       double terrainElevation = planningMap_.atPosition("elevation", iteratorPosition);
+      double volumeSign = 1;
+      if (planningMap_.at("excavation_mask", index) != -1){
+        volumeSign = -1;
+      }
       // set the value if the elevation at the current position in layer elevation is lower than the current value
       if (currentPointElevation < terrainElevation) {
         data(index(0), index(1)) = currentPointElevation;
         elevationChange += terrainElevation - currentPointElevation;
         if (workspace(index(0), index(1)) < 0) {
-          workspaceVolume += planningMap_.getResolution() * planningMap_.getResolution() * (terrainElevation - currentPointElevation);
+          workspaceVolume += volumeSign * planningMap_.getResolution() * planningMap_.getResolution() * (terrainElevation - currentPointElevation);
         }
       }
     }
     // append point
     digPoints.push_back(w_P_next);
+    // check if digging outside of the dig area stop
     // get volume
     double lineVolume = elevationChange * planningMap_.getResolution() * planningMap_.getResolution();
     volume += lineVolume;
+    if (volume < 0){
+      valid = false;
+      break;
+    }
     // check if the trajectory is valid
 //    ROS_INFO_STREAM("[LocalPlanner]: line volume " << lineVolume);
 //    ROS_INFO_STREAM("[LocalPlanner]: volume " << volume);
@@ -462,7 +504,9 @@ Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd){
   // get desired height at the end of the trajectory
   grid_map::Position wg_P_wd2(w_P_wd_last(0), w_P_wd_last(1));
   double elevation2 = excavationMappingPtr_->getElevation(wg_P_wd2);
-  double desiredElevation2 = excavationMappingPtr_->getDesiredElevation(wg_P_wd2);
+  grid_map::Index index2;
+  planningMap_.getIndex(wg_P_wd2, index2);
+  double desiredElevation2 = planningMap_.at(targetLayer, index2);
   // vertical displacement is the difference between the desired elevation and the elevation of the digging point
   w_P_d2d3(2) = elevation2 - desiredElevation + closingOffset(2);
   // transfrom to world frame by rotating yaw angle around the z axis
@@ -487,6 +531,10 @@ Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd){
   digOrientationsFused.push_back(R_ws_d_last);
   digPointsFused.push_back(w_P_wd3);
   digOrientationsFused.push_back(R_ws_d3);
+  // check if digPointFused size is bigger then 0 else raise an warning
+  if (digPointsFused.size() == 0) {
+    ROS_WARN_STREAM("[LocalPlanner]: could not find a valid trajectory!");
+  }
   // get the trajectory
   Trajectory trajectory;
   trajectory.positions = digPointsFused;
@@ -516,9 +564,22 @@ double LocalPlanner::volumeObjective(Trajectory trajectory){
 void LocalPlanner::optimizeTrajectory() {
   // iterate over all the points belonging to the workspace polygon and compute a feasable trajectory starting from each point
   // and find the point that maximizes the objective function
+  // check that digZoneId_ is between 0 and and 2
+  std::string targetLayer;
+  if (digZoneId_ < 0 || digZoneId_ > 2) {
+    ROS_ERROR("[LocalPlanner]: cannot compute optimal trajectory, digZoneId_ is not between 0 and 2");
+    return;
+  }
+  if (digZoneId_ == 0){
+    targetLayer = "desired_elevation";
+  } else if (digZoneId_ == 1 || digZoneId_ == 2){
+    targetLayer = "original_elevation";
+  }
+  ROS_INFO_STREAM("[LocalPlanner]: Optimizing trajectory for digZoneId_ " << digZoneId_);
+//  ROS_INFO_STREAM("[LocalPlanner]: planning zones " << planningZones_.size());
   Trajectory bestTrajectory;
-  double maxObjective = 0;
-  for (grid_map::PolygonIterator iterator(planningMap_, digZone_); !iterator.isPastEnd(); ++iterator) {
+  double maxObjective = -10;
+  for (grid_map::PolygonIterator iterator(planningMap_, planningZones_.at(digZoneId_)); !iterator.isPastEnd(); ++iterator) {
     // get the position of the point
     grid_map::Position diggingPoint;
     planningMap_.getPosition(*iterator, diggingPoint);
@@ -526,38 +587,109 @@ void LocalPlanner::optimizeTrajectory() {
     double elevation = excavationMappingPtr_->getElevation(diggingPoint);
     // create the point in 3d
     Eigen::Vector3d w_P_wd(diggingPoint.x(), diggingPoint.y(), elevation);
-    Trajectory trajectory = this->computeTrajectory(w_P_wd);
+    Trajectory trajectory = this->computeTrajectory(w_P_wd, targetLayer);
     double objective = this->volumeObjective(trajectory);
+//    ROS_INFO_STREAM("[LocalPlanner]: Objective " << objective);
     if (objective > maxObjective) {
       bestTrajectory = trajectory;
       maxObjective = objective;
     }
   }
   ROS_INFO_STREAM("[LocalPlanner]: Best trajectory has volume " << maxObjective);
+  // raise a warning if the found trajectory is empty
+  if (bestTrajectory.positions.size() == 0) {
+    ROS_WARN_STREAM("[LocalPlanner]: could not find a valid trajectory!");
+  }
+  // print expected volume for the best trajectory
+  ROS_INFO_STREAM("[LocalPlanner]: Expected volume " << bestTrajectory.workspaceVolume);
   optimalDigTrajectory_ = bestTrajectory;
 }
 
-bool LocalPlanner::isDigZoneComplete(){
+bool LocalPlanner::isDigZoneComplete(int zoneId){
+  // assert index between 0 and 2
+  if (zoneId < 0 || zoneId > 2) {
+    ROS_ERROR_STREAM("[LocalPlanner]: Invalid zone id " << zoneId);
+    return false;
+  }
+  bool completed = false;
   // sum up all the remaining volume in the digZone and check two conditions:
   // 1. the sum is smaller than the volumeTreshold
   // 2. difference in target height in each cell is lower than the heightTreshold
   double volume = 0;
-  for (grid_map::PolygonIterator iterator(planningMap_, digZone_); !iterator.isPastEnd(); ++iterator) {
+  double totalVolume = 0;
+  int totalNumCells = 0;
+  int numMissingCells = 0;
+  for (grid_map::PolygonIterator iterator(planningMap_, planningZones_.at(zoneId)); !iterator.isPastEnd(); ++iterator) {
     // get the position of the point
     grid_map::Index index(*iterator);
     // get the elevation of the point
     double elevation = planningMap_.at("elevation", index);
-    // get the desired elevation of the point
-    double desiredElevation = planningMap_.at("desired_elevation", index);
-    // get soil volume remaining
-    double heightDifference = std::max(0.0, elevation - desiredElevation);
-    if (heightDifference > heightThreshold_) {
-      return false;
+    double heightDifference;
+    double originalHeightDifference;
+    if (planningMap_.at("excavation_mask", index) == -1) {
+      if (zoneId == 0) {
+        // get the desired elevation of the point
+        double desiredElevation = planningMap_.at("desired_elevation", index);
+        //      ROS_INFO_STREAM("[LocalPlanner]: desired elevation " << desiredElevation << " elevation " << elevation);
+        // get soil volume remaining
+        heightDifference = std::max(0.0, elevation - desiredElevation);
+        originalHeightDifference = std::max(0.0, planningMap_.at("original_elevation", index) - desiredElevation);
+        //      ROS_INFO_STREAM("[LocalPlanner]: height difference " << heightDifference);
+        //      ROS_INFO_STREAM("[LocalPlanner]: original height difference " << originalHeightDifference);
+        if (heightDifference > heightThreshold_) {
+          numMissingCells++;
+        }
+        double deltaOriginalVolume = originalHeightDifference * planningMap_.getResolution() * planningMap_.getResolution();
+        double deltaSoilVolume = heightDifference * planningMap_.getResolution() * planningMap_.getResolution();
+        volume += deltaSoilVolume;
+        totalVolume += deltaOriginalVolume;
+      } else if (zoneId == 1 || zoneId == 2) {
+        double desiredElevation = planningMap_.at("original_elevation", index);
+        heightDifference = std::max(0.0, elevation - desiredElevation);
+//        ROS_INFO_STREAM("[LocalPlanner]: height difference " << heightDifference);
+//        originalHeightDifference = std::max(0.0, planningMap_.at("original_elevation", index) - desiredElevation);
+        if (heightDifference > heightDirtThreshold_) {
+          numMissingCells++;
+        }
+      }
+      totalNumCells++;
     }
-    double soilVolume = heightDifference * planningMap_.getResolution() * planningMap_.getResolution();
-    volume += soilVolume;
   }
-  return volume < volumeThreshold_;
+
+  ROS_INFO_STREAM("[LocalPlanner]: Volume remaining in zone " << zoneId << " is " << volume);
+  ROS_INFO_STREAM("[LocalPlanner]: Total volume remaining is " << totalVolume);
+  ROS_INFO_STREAM("[LocalPlanner]: Total number of cells is " << totalNumCells);
+  ROS_INFO_STREAM("[LocalPlanner]: Number of missing cells is " << numMissingCells);
+  ROS_INFO_STREAM("[LocalPlanner]: Volume ratio: " << volume / totalVolume);
+  ROS_INFO_STREAM("[LocalPlanner]: Number of missing cells ratio: " << (double) numMissingCells / totalNumCells);
+  double volumeRatio = volume / totalVolume;
+  double missingCellsRatio = (double) numMissingCells / totalNumCells;
+  ROS_INFO_STREAM("[LocalPlanner]: missing cell ratio: " << missingCellsRatio);
+  if (digZoneId_ == 0) {
+    completed = volumeRatio < volumeThreshold_ || missingCellsRatio < missingCellsThreshold_;
+  } else{
+    completed = missingCellsRatio < 1.5 * missingCellsThreshold_;
+  }
+  if (completed) {
+    ROS_INFO_STREAM("[LocalPlanner]: Dig zone " << zoneId << " is completed!");
+  }
+  return completed;
+}
+
+bool LocalPlanner::isLocalWorkspaceComplete(){
+  // if both dig zone is -1 then the local workspace is complete
+  if (createNewZones_){
+    // empty the planning zones vector
+    planningZones_.clear();
+    this->createPlanningZones();
+  }
+  // updating the working ares is necessary to choose the right zone
+  this->updateWorkingArea();
+  this->choosePlanningZones();
+  this->updateDugZones();
+  this->updatePlanningMap();
+  ROS_INFO_STREAM("[LocalPlanner]: Local workspace is not complete!");
+  return digZoneId_ == -1;
 }
 
 bool LocalPlanner::isLateralFrontZoneComplete(int zoneId){
@@ -598,9 +730,300 @@ void LocalPlanner::createShovelFilter(){
   this->publishShovelFilter(shovelFilter_, "map");
 }
 
+void LocalPlanner::choosePlanningZones(){
+  // this function selects the dig and dump zones.
+  // dig zone 0 has priority if it's not completed
+  digZoneId_ = -1;
+  if (this->isZoneActive(0, true) && !this->isDigZoneComplete(0)) {
+      digZoneId_ = 0;
+  } else {
+    for (int i = 1; i < 3; i++) {
+      if (this->isZoneActive(i, true)) {
+        if (!this->isDigZoneComplete(i)) {
+          digZoneId_ = i;
+        } else {
+          ROS_INFO_STREAM("[LocalPlanner]: Dig zone " << i << " is complete");
+        }
+      }
+    }
+  }
+
+ // select the dumping zone we check zones 1, 2, 3, 4 to see if they are active.
+ // we then sort the active zones based on their dumpingScore
+ // we then select the zone with the highest dumpingScore
+ dumpZoneId_ = -1;
+ // set dumpingScore to max
+ double dumpingScore = std::numeric_limits<double>::max();
+ for (int i = 1; i < 5; i++) {
+   bool zoneActive = this->isZoneActive(i, false);
+   if (zoneActive && digZoneId_ != -1) {
+     double zoneDumpingScore = this->getDumpingScore(i);
+     if (zoneDumpingScore < dumpingScore) {
+       dumpingScore = zoneDumpingScore;
+       dumpZoneId_ = i;
+     }
+   }
+ }
+
+ // safety checks
+ if (digZoneId_ != -1) {
+   if (dumpZoneId_ != -1) {
+     ROS_INFO("[LocalPlanner]: dig zone %d, dump zone %d", digZoneId_, dumpZoneId_);
+   } else {
+     ROS_ERROR("[LocalPlanner]: dig zone %d, dump zone not selected", digZoneId_);
+   }
+ } else {
+   ROS_WARN("[LocalPlanner]: dig zone not selected, dump zone %d", dumpZoneId_);
+ }
+ // dump and dig zone cannot be the same
+ if (digZoneId_ == -1){
+   if (digZoneId_ == dumpZoneId_) {
+     ROS_WARN("[LocalPlanner]: dig and dump zone not selected. Finished working here.");
+   }
+ } else {
+   if (digZoneId_ == dumpZoneId_) {
+     ROS_WARN("[LocalPlanner]: dig zone and dump zone cannot be the same");
+   }
+ }
+ // publish the updated map
+ if (digZoneId_ != -1 && dumpZoneId_ != -1) {
+   this->markDigDumpAreas();
+   this->publishPlanningMap();
+ }
+}
+
+bool LocalPlanner::isZoneActive(int zoneId, bool isDigging){
+  // a zone is considered active if it does not overlap with an already dug area
+  // a dug areas in marked in the layer "dug_area" of the planning map with a value of 1
+  double numDugCells = 0;
+  double numCellsExcavationArea = 0;
+  double totalCells = 0;
+  bool active = true;
+  for (grid_map::PolygonIterator iterator(planningMap_, planningZones_.at(zoneId)); !iterator.isPastEnd(); ++iterator) {
+    // get the position of the point
+    grid_map::Index index(*iterator);
+    // get the elevation of the point
+    double dugValue = planningMap_.at("dug_area", index);
+    double excavationZone = planningMap_.at("excavation_mask", index);
+    totalCells++;
+    if (dugValue == 1) {
+      numDugCells++;
+    }
+    if (excavationZone == -1) {
+      numCellsExcavationArea++;
+    }
+  }
+  if (isDigging){
+    ROS_INFO_STREAM("[LocalPlanner]: Dig zone " << zoneId << " has excavation cell ratio " << (double) numCellsExcavationArea / totalCells);
+    ROS_INFO_STREAM("[LocalPlanner]: It should be bigger than " << (1 - inactiveAreaRatio_));
+    active = active && ((double) numCellsExcavationArea / totalCells) > (1 - inactiveAreaRatio_);
+  } else {
+    ROS_INFO_STREAM("[LocalPlanner]: Dump zone " << zoneId << " has dug cell ratio " << (double) numDugCells / totalCells);
+    ROS_INFO_STREAM("[LocalPlanner]: It should be smaller than " << (1 - inactiveAreaRatio_));
+    active = active && ((double) numDugCells / totalCells) < (1 - inactiveAreaRatio_);
+  }
+
+//  if (isDigging){
+//    for (grid_map::PolygonIterator iterator(planningMap_, planningZones_.at(zoneId)); !iterator.isPastEnd(); ++iterator) {
+//      // get the position of the point
+//      grid_map::Index index(*iterator);
+//      // get the elevation of the point
+//      double dugValue = planningMap_.at("working_area", index);
+//      double excavationZone = planningMap_.at("excavation_mask", index);
+//      totalCells++;
+//      if (dugValue == 1) {
+//        numDugCells++;
+//      }
+//      if (excavationZone == -1) {
+//        numCellsExcavationArea++;
+//      }
+//    }
+//    active = (double) numCellsExcavationArea / totalCells > 0.1;
+//  }
+//  for (grid_map::PolygonIterator iterator(planningMap_, planningZones_.at(zoneId)); !iterator.isPastEnd(); ++iterator) {
+//    // get the position of the point
+//    grid_map::Index index(*iterator);
+//    // get the elevation of the point
+//    double dugValue = planningMap_.at("working_area", index);
+//    double excavationZone = planningMap_.at("excavation_mask", index);
+//    totalCells++;
+//    if (dugValue == 1) {
+//      numDugCells++;
+//    }
+//    if (excavationZone == -1) {
+//      numCellsExcavationArea++;
+//    }
+//  }
+//  active = (double) numDugCells / totalCells < inactiveAreaRatio_;
+//
+//  if (!isDigging){
+//    if (zoneId == 1 || zoneId == 2) {
+//      active = active && numCellsExcavationArea / totalCells < inactiveAreaRatio_;
+//    }
+//  }
+  ROS_INFO_STREAM("[LocalPlanner]: Zone " << zoneId << " is active: " << active << " (" << numDugCells << "/" << totalCells << ")" << " digging: " << isDigging);
+  if (active) {
+    for (grid_map::PolygonIterator iterator(planningMap_, planningZones_.at(zoneId)); !iterator.isPastEnd(); ++iterator) {
+      // get the position of the point
+      grid_map::Index index(*iterator);
+      if (isDigging) {
+        planningMap_.at("active_dig_zones", index) = 1;
+        if (zoneId == 0 && planningMap_.at("excavation_mask", index) == -1) {
+          planningMap_.at("working_area", index) = 1;
+          planningMap_.at("dug_area", index) = 1;
+        }
+      } else {
+        planningMap_.at("active_dump_zones", index) = 1;
+      }
+    }
+  }
+  return active;
+}
+
+void LocalPlanner::markDigDumpAreas(){
+  // mark the dig and dump areas in the planning map
+  for (grid_map::PolygonIterator iterator(planningMap_, planningZones_.at(digZoneId_)); !iterator.isPastEnd(); ++iterator) {
+    // get the position of the point
+    grid_map::Index index(*iterator);
+    planningMap_.at("active_dig_zones", index) = 2;
+  }
+  for (grid_map::PolygonIterator iterator(planningMap_, planningZones_.at(dumpZoneId_)); !iterator.isPastEnd(); ++iterator) {
+    // get the position of the point
+    grid_map::Index index(*iterator);
+    planningMap_.at("active_dump_zones", index) = 2;
+  }
+}
+
+void LocalPlanner::resetDigDumpAreas(){
+  // reset the dig and dump areas in the planning map
+  for (int zoneId = 0; zoneId < planningZones_.size(); zoneId++) {
+    for (grid_map::PolygonIterator iterator(planningMap_, planningZones_.at(zoneId)); !iterator.isPastEnd(); ++iterator) {
+      // get the position of the point
+      grid_map::Index index(*iterator);
+      planningMap_.at("active_dig_zones", index) = 0;
+    }
+    for (grid_map::PolygonIterator iterator(planningMap_, planningZones_.at(zoneId)); !iterator.isPastEnd(); ++iterator) {
+      // get the position of the point
+      grid_map::Index index(*iterator);
+      planningMap_.at("active_dump_zones", index) = 0;
+    }
+  }
+
+  createNewZones_ = true;
+}
+
+// this could quite noisy in the real world but it's good for testing
+void LocalPlanner::updateDugZones(){
+  // iterate over the map and check if difference between the desired elevation and the elevation is less than the heightThreshold_
+  // if it is, mark the cell as dug
+  for (grid_map::GridMapIterator iterator(planningMap_); !iterator.isPastEnd(); ++iterator) {
+    // get the position of the point
+    grid_map::Index index(*iterator);
+    // get the elevation of the point
+    double elevation = planningMap_.at("elevation", index);
+    double desiredElevation = planningMap_.at("desired_elevation", index);
+    double heightDifference = std::max(0.0, elevation - desiredElevation);
+    int dugArea = planningMap_.at("excavation_mask", index);
+    if (heightDifference < heightThreshold_ && dugArea == -1) {
+      planningMap_.at("dug_area", index) = 1;
+    }
+  }
+}
+
+void LocalPlanner::sdfDumpingAreas(){
+//  ROS_INFO("[LocalPlanner]: creating the sdf!");
+  geometry_msgs::TransformStamped T_bw;
+  std::vector<Eigen::Vector2d> w_PosDigVertex_bd;
+  try {
+    T_bw = tfBuffer_->lookupTransform("map", "BASE", ros::Time(0));
+  } catch (tf2::TransformException &ex) {
+    ROS_WARN("[LocalPlanner]: %s", ex.what());
+    ros::Duration(1.0).sleep();
+  }
+  Eigen::Quaterniond targetOrientation(T_bw.transform.rotation.w, T_bw.transform.rotation.x, T_bw.transform.rotation.y, T_bw.transform.rotation.z);
+  double yawAngle = targetOrientation.toRotationMatrix().eulerAngles(0, 1, 2).z();
+ // copy the distance back to the planning map
+ for (grid_map::GridMapIterator iterator(planningMap_); !iterator.isPastEnd(); ++iterator) {
+   // get the position of the point
+   grid_map::Index index(*iterator);
+   // position
+   Eigen::Vector2d position;
+   planningMap_.getPosition(*iterator, position);
+//   Eigen::Vector3d position3d(position.x(), position.y(), 0.5);
+//   // get the elevation of the point
+   //   double distance = sdf.getDistanceAt(position3d);
+   double distance;
+   if (planningMap_.at("excavation_mask", index) == 1) {
+     distance = -1;
+   } else {
+     // if yaw angle is negative then distance is linear function starting from 10 at y=10 and going to 0 at y=-10
+     // if yaw angle is positive then distance is linear function starting from 10 at y=-10 and going to 0 at y=10
+     if (yawAngle < 0) {
+       distance = (5 - position.y() / 2);
+     } else {
+       distance = (-5 + position.y() / 2);
+     }
+//    distance = 0.05 * (10 - abs(position.x())) * (10 - abs(position.y()));
+   }
+   planningMap_.at("dumping_distance", index) = distance;
+ }
+// ROS_INFO_STREAM("[LocalPlanner]: SDF calculated");
+}
+
+double LocalPlanner::getDumpingScore(int zoneId){
+  // the dumping score is proportional to the average distance to the dump zone
+  // the distances are stored in the "dumping_distance" layer of the planning map
+//  ROS_INFO_STREAM("[LocalPlanner]: Calculating dumping score for zone " << zoneId);
+  geometry_msgs::TransformStamped T_mba;
+  // get transform from base to cabin frame
+  try {
+    T_mba = tfBuffer_->lookupTransform("map", "BASE", ros::Time(0));
+  } catch (tf2::TransformException &ex) {
+    ROS_WARN("%s", ex.what());
+    ros::Duration(1.0).sleep();
+  }
+  // get the position of the BASE in the map frame
+  Eigen::Vector3d w_P_wba = Eigen::Vector3d(T_mba.transform.translation.x, T_mba.transform.translation.y, T_mba.transform.translation.z);
+  // from geometric message to tf2 transform
+  tf2::Transform T_mba_tf2 = tf2::Transform(tf2::Quaternion(T_mba.transform.rotation.x, T_mba.transform.rotation.y, T_mba.transform.rotation.z, T_mba.transform.rotation.w),
+                                            tf2::Vector3(T_mba.transform.translation.x, T_mba.transform.translation.y, T_mba.transform.translation.z));
+  tf2::Transform T_bam_tf2 = T_mba_tf2.inverse();
+
+  double score;
+  double totalDistance = 0;
+  this->sdfDumpingAreas();
+  for (grid_map::PolygonIterator iterator(planningMap_, planningZones_.at(zoneId)); !iterator.isPastEnd(); ++iterator) {
+    // get the position of the point
+    grid_map::Index index(*iterator);
+    // get the elevation of the point
+    double distance = planningMap_.at("dumping_distance", index);
+    // add the distance to the total distance
+    totalDistance += distance;
+  }
+  double scoreGlocalDistance = dumpingZoneDistanceWeight_ * totalDistance / planningZones_.at(zoneId).getArea();
+  // get the center of the zone
+  Eigen::Vector2d w_zoneCenter_wc = zoneCenters_.at(zoneId);
+  // get the position of the zoneCenter in base frame (w_ZoneCenter_wc -> b_ZoneCenter_bc)
+  // does this change the orientation or also the position?
+  tf2::Vector3 b_zoneCenter_bc = T_bam_tf2 * tf2::Vector3(w_zoneCenter_wc.x(), w_zoneCenter_wc.y(), 0.0);
+  Eigen::Vector2d b_zoneCenter_bc_2d(b_zoneCenter_bc.x(), b_zoneCenter_bc.y());
+//  ROS_INFO_STREAM("[LocalPlanner]: zone " << zoneId << " center in base frame: " << b_zoneCenter_bc_2d << " and in map frame: " << w_zoneCenter_wc);
+  double scoreX = xBiasWeight_ * (b_zoneCenter_bc.x() - w_P_wba.x());
+  double scoreLocalDistance = digDumpDistanceWeight_ * this->distanceZones(digZoneId_, zoneId);
+  score += scoreX + scoreLocalDistance + scoreGlocalDistance;
+//  ROS_INFO_STREAM("[LocalPlanner]: dumping score for zone " << zoneId << " is " << score);
+  // print detailed breakdown of the score contribution
+  ROS_INFO_STREAM("[LocalPlanner]: total score " << score << ", dumping score breakdown for zone " << zoneId << " is " <<
+                  scoreX << " x bias, " << scoreLocalDistance << " local distance, " << scoreGlocalDistance << " global distance");
+  ROS_INFO_STREAM("[LocalPlanner]: --------------------------------------------------------------------------");
+  return score;
+}
+
 void LocalPlanner::createPlanningZones(){
-  // create the planning zones
+  // update parameters to decide wether to recreate the zones
+  createNewZones_ = false;
   planningZones_.clear();
+  zoneCenters_.clear();
   // get vertices for the zones
   std::vector<Eigen::Vector2d> b_PosDigVertex_bd = getDiggingPatchVertices();
   std::vector<Eigen::Vector2d> w_PosDigVertex_wd;
@@ -628,45 +1051,88 @@ void LocalPlanner::createPlanningZones(){
     ROS_WARN("[LocalPlanner]: %s", ex.what());
     ros::Duration(1.0).sleep();
   }
+  // get translation vector from T_bw
+  Eigen::Vector3d t_bw;
+  Eigen::Quaterniond targetOrientation;
+  if (isWorkspacePoseSet_){
+//    ROS_INFO_STREAM("[LocalPlanner]: using set workspace pose");
+    targetOrientation = workspaceOrientation_;
+    // todo: put proper translation vector
+    t_bw = Eigen::Vector3d(T_bw.transform.translation.x, T_bw.transform.translation.y, T_bw.transform.translation.z);
+
+    isWorkspacePoseSet_ = false;
+  } else {
+    targetOrientation = Eigen::Quaterniond(T_bw.transform.rotation.w, T_bw.transform.rotation.x, T_bw.transform.rotation.y, T_bw.transform.rotation.z);
+    t_bw = Eigen::Vector3d(T_bw.transform.translation.x, T_bw.transform.translation.y, T_bw.transform.translation.z);
+  }
+  // get yaw angle
   // transform the vertices
-    for (Eigen::Vector2d vertex : b_PosDigVertex_bd) {
+  Eigen::Vector2d frontZoneCenter;
+  for (Eigen::Vector2d vertex : b_PosDigVertex_bd) {
       Eigen::Vector3d vertex_eigen(vertex(0), vertex(1), 0);
       Eigen::Vector3d vertex_w_eigen;
-      tf2::doTransform(vertex_eigen, vertex_w_eigen, T_bw);
+      vertex_w_eigen = targetOrientation.toRotationMatrix() * vertex_eigen + t_bw;
       Eigen::Vector2d vertex_w(vertex_w_eigen(0), vertex_w_eigen(1));
+      frontZoneCenter += vertex_w;
       w_PosDigVertex_bd.push_back(vertex_w);
     }
+    frontZoneCenter /= b_PosDigVertex_bd.size();
+
+    // get the center
+    Eigen::Vector2d frontLeftZoneCenter;
     for (Eigen::Vector2d vertex : b_PosDumpFrontLeft_bdu) {
       Eigen::Vector3d vertex_eigen(vertex(0), vertex(1), 0);
       Eigen::Vector3d vertex_w_eigen;
-      tf2::doTransform(vertex_eigen, vertex_w_eigen, T_bw);
+      vertex_w_eigen = targetOrientation.toRotationMatrix() * vertex_eigen + t_bw;
       Eigen::Vector2d vertex_w(vertex_w_eigen(0), vertex_w_eigen(1));
+      frontLeftZoneCenter += vertex_w;
       w_PosDumpFrontLeft_wdu.push_back(vertex_w);
     }
+    frontLeftZoneCenter /= b_PosDumpFrontLeft_bdu.size();
+
+    // get the center
+    Eigen::Vector2d frontRightZoneCenter;
     for (Eigen::Vector2d vertex : b_PosDumpFrontRight_bdu) {
       Eigen::Vector3d vertex_eigen(vertex(0), vertex(1), 0);
       Eigen::Vector3d vertex_w_eigen;
-      tf2::doTransform(vertex_eigen, vertex_w_eigen, T_bw);
+      vertex_w_eigen = targetOrientation.toRotationMatrix() * vertex_eigen + t_bw;
       Eigen::Vector2d vertex_w(vertex_w_eigen(0), vertex_w_eigen(1));
+      frontRightZoneCenter += vertex_w;
       w_PosDumpFrontRight_wdu.push_back(vertex_w);
     }
+    frontRightZoneCenter /= b_PosDumpFrontRight_bdu.size();
+
+    // get the center
+    Eigen::Vector2d backLeftZoneCenter;
     for (Eigen::Vector2d vertex : b_PosDumpBackLeft_bdu) {
+      if (vertex(0) > 50){
+        ROS_INFO_STREAM("[LocalPlanner]: skipping vertex " << vertex.transpose());
+      }
       Eigen::Vector3d vertex_eigen(vertex(0), vertex(1), 0);
       Eigen::Vector3d vertex_w_eigen;
-      tf2::doTransform(vertex_eigen, vertex_w_eigen, T_bw);
+      vertex_w_eigen = targetOrientation.toRotationMatrix() * vertex_eigen + t_bw;
       Eigen::Vector2d vertex_w(vertex_w_eigen(0), vertex_w_eigen(1));
+      if (vertex_w(0) > 50){
+        ROS_INFO_STREAM("[LocalPlanner]: skipping world frame  vertex " << vertex_w.transpose());
+      }
+      backLeftZoneCenter += vertex_w;
       w_PosDumpBackLeft_wdu.push_back(vertex_w);
     }
+    backLeftZoneCenter /= b_PosDumpBackLeft_bdu.size();
+
+    // get the center
+    Eigen::Vector2d backRightZoneCenter;
     for (Eigen::Vector2d vertex : b_PosDumpBackRight_bdu) {
       Eigen::Vector3d vertex_eigen(vertex(0), vertex(1), 0);
       Eigen::Vector3d vertex_w_eigen;
-      tf2::doTransform(vertex_eigen, vertex_w_eigen, T_bw);
+      vertex_w_eigen = targetOrientation.toRotationMatrix() * vertex_eigen + t_bw;
       Eigen::Vector2d vertex_w(vertex_w_eigen(0), vertex_w_eigen(1));
+      backRightZoneCenter += vertex_w;
       w_PosDumpBackRight_wdu.push_back(vertex_w);
     }
+    backRightZoneCenter /= b_PosDumpBackRight_bdu.size();
 
 
-//
 //  // transform the vertices from base frame to world frame
 //  for (Eigen::Vector2d vertex : b_PosDigVertex_bd) {
 //    Eigen::Vector3d vertex_eigen(vertex(0), vertex(1), 0);
@@ -687,7 +1153,8 @@ void LocalPlanner::createPlanningZones(){
   // print the polygon
   //  for (grid_map::PolygonIterator iterator(excavationMappingPtr_->gridMap_, digZone); !iterator.isPastEnd(); ++iterator) {
   //    try {
-  ////      ROS_INFO_STREAM("[LocalPlanner]: Adding dig zone to map at " << *iterator);
+  ////      ROS_INFO_STREAM("[LocalPlanner]: Adding dig
+  /// zone to map at " << *iterator);
   //      excavationMappingPtr_->gridMap_.at("planning_zones", *iterator) = 1;
   //    } catch (std::out_of_range& e) {
   //      ROS_ERROR_STREAM("[LocalPlanner]: " << e.what());
@@ -699,12 +1166,35 @@ void LocalPlanner::createPlanningZones(){
   planningZones_.push_back(dumpingRightFrontZone_);
   planningZones_.push_back(dumpingLeftBackZone_);
   planningZones_.push_back(dumpingRightBackZone_);
+  // append the centers
+  zoneCenters_.push_back(frontZoneCenter);
+  zoneCenters_.push_back(frontLeftZoneCenter);
+  zoneCenters_.push_back(frontRightZoneCenter);
+  zoneCenters_.push_back(backLeftZoneCenter);
+  zoneCenters_.push_back(backRightZoneCenter);
+  ROS_INFO_STREAM("[LocalPlanner]: Planning zones created");
+  // print the zone centers
+//  for (int i = 0; i < zoneCenters_.size(); i++) {
+//    ROS_INFO_STREAM("[LocalPlanner]: Zone " << i << " center: " << zoneCenters_[i]);
+//  }
 
   std::vector<double> zoneValues = {-1, .2, .2, 1, 1};
   this->addPlanningZonesToMap(zoneValues);
   ROS_INFO_STREAM("[LocalPlanner]: planning zones created");
 }
 
+void LocalPlanner::setWorkspacePose(Eigen::Vector3d& workspacePos, Eigen::Quaterniond& workspaceOrientation) {
+  ROS_INFO_STREAM("[LocalController]: Setting workspace pose");
+  workspacePos_ = workspacePos;
+  workspaceOrientation_ = workspaceOrientation;
+  isWorkspacePoseSet_ = true;
+}
+
+double LocalPlanner::distanceZones(int zoneId1, int zoneId2){
+  ROS_INFO_STREAM("[LocalPlanner]: distance between zone " << zoneId1 << " and zone " << zoneId2);
+  // we define the distance between two zones as the distance between the centers of the zones
+  return (zoneCenters_.at(zoneId1) - zoneCenters_.at(zoneId2)).norm();
+}
 
 Eigen::Vector3d LocalPlanner::projectVectorOntoSubspace(Eigen::Vector3d& vector, Eigen::Matrix3Xd& subspaceBasis){
   // each column of subspaceBasis is a subspace basis vector, normalize it
@@ -934,8 +1424,8 @@ Trajectory LocalPlanner::getDigTrajectoryWorldFrame(Eigen::Vector3d& w_P_wd){
 //  return C_sw_quat;
 //}
 
-void LocalPlanner::findDumpPoint(int zoneId) {
-  ROS_INFO("[LocalPlanner]: findDumpPoint");
+void LocalPlanner::findDumpPoint(){
+  ROS_INFO("[LocalPlanner]: findDumpPoint in zone %d", dumpZoneId_);
   geometry_msgs::TransformStamped T_mba;
   // get transform from base to cabin frame
   try {
@@ -955,7 +1445,9 @@ void LocalPlanner::findDumpPoint(int zoneId) {
   // the dump point belongs to the planning zone with id zoneId
   // the dump point should be one with least elevation and further in the back of the base frame
   double minSignedBaseDistance = 0; // dump area start here
-  grid_map::PolygonIterator iterator(planningMap_, planningZones_.at(zoneId));
+  grid_map::PolygonIterator iterator(planningMap_, planningZones_.at(dumpZoneId_));
+  double digPointBestValue = -100;
+
   for (iterator; !iterator.isPastEnd(); ++iterator) {
     ++iterator;
     grid_map::Index index(*iterator);
@@ -968,10 +1460,11 @@ void LocalPlanner::findDumpPoint(int zoneId) {
     tf2::Vector3 w_P_d(positionZone.x(), positionZone.y(), elevation);
     // transform to base frame
     tf2::Vector3 b_P_d = T_bam_tf2 * w_P_d;
-    // get position in base frame, used for the optimzation
+    // get position in base frame, used for the optimization
     // convert T_bam_Tf2 into transform stamped;
     // get the y coordinates
     double x_base = b_P_d.x();
+    double y_base = b_P_d.y();
 
     std::vector<grid_map::Position> w_shovelFilter_sv;
     // rotate filter to have same orientation as base frame
@@ -995,7 +1488,7 @@ void LocalPlanner::findDumpPoint(int zoneId) {
     bool valid = true;
     // check that all vertices are inside the zone else skip this point
     for (int i = 0; i < w_shovelFilter_sv.size(); i++) {
-      if (!planningZones_.at(zoneId).isInside(w_shovelFilter_sv.at(i))) {
+      if (!planningZones_.at(dumpZoneId_).isInside(w_shovelFilter_sv.at(i))) {
         valid = false;
       }
     }
@@ -1006,29 +1499,55 @@ void LocalPlanner::findDumpPoint(int zoneId) {
     // check the amount of volume inside the polygon
     double maxHeightDiff = 0;
     double filterVolume = 0;
+    double dumpCells = 0;
     for (grid_map::PolygonIterator iterator(planningMap_, polygon_w); !iterator.isPastEnd(); ++iterator) {
       grid_map::Index index(*iterator);
       double elevation = planningMap_.at("elevation", index);
       double originalElevation = planningMap_.at("original_elevation", index);
+      if (planningMap_.at("excavation_mask", index) == 1) {
+        dumpCells++;
+      }
       double heightDiff = elevation - originalElevation;
       if (heightDiff > maxHeightDiff) {
         maxHeightDiff = heightDiff;
       }
       filterVolume += heightDiff * planningMap_.getResolution() * planningMap_.getResolution();
     }
+    double diggingPointValue = 0;
+//    ROS_INFO_STREAM("filterVolume: " << filterVolume << " volumeThreshold: " << volumeDirtThreshold_);
+//    ROS_INFO_STREAM("[LocalPlanner] : maHeightDiff: " << maxHeightDiff << " heightDiffThreshold: " << heightDirtThreshold_);
+//    ROS_INFO("maxHeightDiff: " << maxHeightDiff << " heightDiffThreshold: " << heightDiffThreshold_);
     // check if volume is below the threshold
     // if volume is below the threshold, then the dump point is the current position
-    if (filterVolume < volumeDirtThreshold_ && maxHeightDiff < heightDirtThreshold_) {
-      ROS_INFO("[LocalPlanner]: findDumpPoint: found dump point at %f, %f", positionZone.x(), positionZone.y());
-      this->publishShovelFilter(w_shovelFilter_sv, "map");
+    if (filterVolume < volumeDirtThreshold_ && maxHeightDiff < heightDumpThreshold_) {
+//      ROS_INFO("[LocalPlanner]: findDumpPoint: found dump point at %f, %f", positionZone.x(), positionZone.y());
+//      this->publishShovelFilter(w_shovelFilter_sv, "map");
+      // pause ros for 0.2 seconds
       // pause for 0.3 seconds
-      ros::Duration(0.3).sleep();
-      if (x_base < minSignedBaseDistance) {
+//      ros::Duration(0.3).sleep();
+      double xDumpWeight = xDumpWeight_;
+      // if dumping in the front give priority to position further in the front
+      if (dumpZoneId_ > 2){
+        xDumpWeight = xDumpWeight_ * -1;
+      }
+      double baseScore = x_base * xDumpWeight - abs(y_base - 4.) * yDumpWeight_;
+      double dumpCellScore = dumpCells * dumpCellsWeight_;
+      double volumeDirtScore = filterVolume * volumeDirtWeight_;
+//      ROS_INFO_STREAM("[LocalPlanner] : baseScore: " << baseScore << " dumpCellScore: " << dumpCellScore << " volumeDirtScore: " << volumeDirtScore);
+      // print scores
+//      ROS_INFO_STREAM("[LocalPlanner]: findDumpPoint: baseScore: " << baseScore << " dumpCellScore: " << dumpCellScore);
+      double pointScore = baseScore + dumpCellScore + volumeDirtScore;
+//      ROS_INFO_STREAM("[LocalPlanner]: findDumpPoint: found dump point at " << x_base  << " with weight " << xDumpWeight_ << " and score " << pointScore);
+//      ROS_INFO_STREAM("[LocalPlanner]: findDumpPoint: dump cells: " << dumpCells);
+      if (pointScore > digPointBestValue) {
+//        ROS_INFO_STREAM("[Localplanner]: setting best dump point to " << x_base);
+        digPointBestValue = pointScore;
         minSignedBaseDistance = x_base;
         dumpPointIndex_ = index;
       }
     }
   }
+  ROS_INFO_STREAM("[LocalPlanner]: findDumpPoint: best dump point score: " << digPointBestValue);
   // raise a warning  if the dump point is not found
   if (iterator.isPastEnd() && minSignedBaseDistance == 0) {
     ROS_WARN("Dump point not found");
@@ -1064,16 +1583,16 @@ std::vector<Eigen::Vector2d> LocalPlanner::getDiggingPatchVertices(){
   // that spans from the angle -pi/5 to 1/5 pi
   // the circle is sampled at 10 points
   std::vector<Eigen::Vector2d> vertices;
-
-  for (int i = 0; i < 15; i++) {
-    double angle = -M_PI / 5 + i * M_PI / 25;
+  int numPoints = 15;
+  for (int i = 1; i < numPoints - 1; i++) {
+    double angle = -circularWorkspaceAngle_/2 + circularWorkspaceAngle_ * i / numPoints;
     Eigen::Vector2d vertex(circularWorkspaceOuterRadius_ * cos(angle), circularWorkspaceOuterRadius_ * sin(angle));
     vertices.push_back(vertex);
   }
   // add vertices belonging to another arc with radius circularWorkspaceInnerRadius_
   // add them in the opposite order
-  for (int i = 9; i >= 0; i--) {
-    double angle = -M_PI / 5 + i * M_PI / 25;
+  for (int i = numPoints - 1; i >= 0; i--) {
+    double angle = -circularWorkspaceAngle_/2 + circularWorkspaceAngle_ * i / numPoints;
     Eigen::Vector2d vertex(circularWorkspaceInnerRadius_ * cos(angle), circularWorkspaceInnerRadius_ * sin(angle));
     vertices.push_back(vertex);
   }
@@ -1261,6 +1780,32 @@ void LocalPlanner::addPlanningZonesToMap(std::vector<double> values){
   }
 }
 
+void LocalPlanner::updateWorkingArea() {
+  // first we assign the dug layer to the untraversable areas
+//  planningMap_["working_area"] = planningMap_["dug_area"];
+  // iterate over the whole map and mark untraversable areas that differ more than heightTraversableThreshold_ from the original layer
+  // with this heuristic we would like to exclude dump areas
+  // accounting for dump areas is hard since dirt is constantly move around and marking and marking it could be error prone due to heading precision
+  for (grid_map::GridMapIterator iterator(planningMap_); !iterator.isPastEnd(); ++iterator) {
+    // get iterator index
+    grid_map::Index index(*iterator);
+    // check the difference between the current elevation and the original elevation
+    double difference = planningMap_.at("elevation", index) - planningMap_.at("original_elevation", index);
+    if (abs(difference) > heightTraversableThreshold_) {
+      planningMap_.at("working_area", index) = 1;
+    }
+    if (difference < - heightDigAreaThreshold_) {
+      planningMap_.at("dug_area", index) = 1;
+    }
+  }
+}
+
+void LocalPlanner::publishWorkingArea(){
+  // transform the planning map into a msgs
+  grid_map_msgs::GridMap message;
+  grid_map::GridMapRosConverter::toMessage(planningMap_, message);
+  workingAreaPublisher_.publish(message);
+}
 
 //
 //std::vector<Eigen::Vector3d> LocalPlanner::getDigStraightTrajectory(Eigen::Vector3d& diggingPoint) {
@@ -1476,10 +2021,10 @@ void LocalPlanner::publishShovelPoints(Eigen::Vector3d& shovelLeftContactPoint, 
 
 void LocalPlanner::publishWorkspacePts(std::vector<Eigen::Vector2d> workspacePts, std::string frameId){
   // ros info stream the workspace points
-  std::cout << "workspace points: " << std::endl;
-  for (int i = 0; i < workspacePts.size(); i++) {
-    std::cout << workspacePts[i].transpose() << std::endl;
-  }
+//  std::cout << "workspace points: " << std::endl;
+//  for (int i = 0; i < workspacePts.size(); i++) {
+//    std::cout << workspacePts[i].transpose() << std::endl;
+//  }
 
   // iterate over the points and publish them as spheres
   visualization_msgs::MarkerArray markerArray;
@@ -1514,16 +2059,13 @@ void LocalPlanner::publishWorkspacePts(std::vector<Eigen::Vector2d> workspacePts
 //    ros::Duration(0.5).sleep();
 //  }
   workspacePtsPublisher_.publish(markerArray);
-  ROS_INFO("[LocalPlanner]: Published workspace points");
+//  ROS_INFO("[LocalPlanner]: Published workspace points");
 }
 
 
 void LocalPlanner::publishShovelFilter(std::vector<Eigen::Vector2d> workspacePts, std::string frameId){
   // ros info stream the workspace points
-  std::cout << "workspace points: " << std::endl;
-  for (int i = 0; i < workspacePts.size(); i++) {
-    std::cout << workspacePts[i].transpose() << std::endl;
-  }
+//  std::cout << "workspace points: " << std::endl;
 
   // iterate over the points and publish them as spheres
   visualization_msgs::MarkerArray markerArray;
@@ -1558,7 +2100,7 @@ void LocalPlanner::publishShovelFilter(std::vector<Eigen::Vector2d> workspacePts
   //    ros::Duration(0.5).sleep();
   //  }
   shovelFilterPublisher_.publish(markerArray);
-  ROS_INFO("[LocalPlanner]: Published shovel filter points");
+//  ROS_INFO("[LocalPlanner]: Published shovel filter points");
 }
 
 void LocalPlanner::publishMarkersTrajectory(std::vector<grid_map::Position3> positions, std::string frameId) const{
