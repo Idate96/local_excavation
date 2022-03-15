@@ -150,7 +150,9 @@ bool LocalPlanner::initialize(std::string designMapBag) {
 //    std::thread planningThread_ = std::thread(&LocalPlanner::createPlanningZones, this);
   // detach the thread
 //  planningThread_.detach();
-//  this->updateWorkingArea();
+  this->updateWorkingArea();
+//  this->choosePlanningZones();
+  this->updateDugZones();
 //  this->updatePlanningMap();
   return true;
 };
@@ -399,7 +401,8 @@ Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd, std::string 
   // angle of attack, if 0 shovel moves along the local z axis of the end effector
   double alpha = 0;
   double diggingPathAngle = desiredLocalAttitudeAngle - alpha;
-  double horizontalDisplacement = desiredElevation/tan(diggingPathAngle);
+  double heightChange = elevation - desiredElevation;
+  double horizontalDisplacement = heightChange/tan(diggingPathAngle);
   w_P_dd1.head(2) = w_P_dba * horizontalDisplacement;
   //  ROS_INFO_STREAM("[LocalPlanner]: digging vector in world frame " << w_P_dd1.transpose());
   //  ROS_INFO_STREAM("[LocalPlanner]: horizontal displacement " << horizontalDisplacement);
@@ -732,6 +735,7 @@ void LocalPlanner::createShovelFilter(){
 
 void LocalPlanner::choosePlanningZones(){
   // this function selects the dig and dump zones.
+  // we first select the dig area between 0, 1, 2 zones
   // dig zone 0 has priority if it's not completed
   digZoneId_ = -1;
   if (this->isZoneActive(0, true) && !this->isDigZoneComplete(0)) {
@@ -756,6 +760,7 @@ void LocalPlanner::choosePlanningZones(){
  double dumpingScore = std::numeric_limits<double>::max();
  for (int i = 1; i < 5; i++) {
    bool zoneActive = this->isZoneActive(i, false);
+   ROS_INFO_STREAM("[LocalPlanner]: Dumping Zone " << i << " is active: " << zoneActive);
    if (zoneActive && digZoneId_ != -1) {
      double zoneDumpingScore = this->getDumpingScore(i);
      if (zoneDumpingScore < dumpingScore) {
@@ -771,6 +776,8 @@ void LocalPlanner::choosePlanningZones(){
      ROS_INFO("[LocalPlanner]: dig zone %d, dump zone %d", digZoneId_, dumpZoneId_);
    } else {
      ROS_ERROR("[LocalPlanner]: dig zone %d, dump zone not selected", digZoneId_);
+     // quit the node
+     ros::shutdown();
    }
  } else {
    ROS_WARN("[LocalPlanner]: dig zone not selected, dump zone %d", dumpZoneId_);
@@ -796,6 +803,7 @@ bool LocalPlanner::isZoneActive(int zoneId, bool isDigging){
   // a zone is considered active if it does not overlap with an already dug area
   // a dug areas in marked in the layer "dug_area" of the planning map with a value of 1
   double numDugCells = 0;
+  double numCellsToBeDug = 0;
   double numCellsExcavationArea = 0;
   double totalCells = 0;
   bool active = true;
@@ -806,6 +814,9 @@ bool LocalPlanner::isZoneActive(int zoneId, bool isDigging){
     double dugValue = planningMap_.at("dug_area", index);
     double excavationZone = planningMap_.at("excavation_mask", index);
     totalCells++;
+    if (planningMap_.at("working_area", index) == 1) {
+      numCellsToBeDug++;
+    }
     if (dugValue == 1) {
       numDugCells++;
     }
@@ -814,13 +825,15 @@ bool LocalPlanner::isZoneActive(int zoneId, bool isDigging){
     }
   }
   if (isDigging){
+    // ratio of cells to be dug in the zone
     ROS_INFO_STREAM("[LocalPlanner]: Dig zone " << zoneId << " has excavation cell ratio " << (double) numCellsExcavationArea / totalCells);
     ROS_INFO_STREAM("[LocalPlanner]: It should be bigger than " << (1 - inactiveAreaRatio_));
     active = active && ((double) numCellsExcavationArea / totalCells) > (1 - inactiveAreaRatio_);
   } else {
-    ROS_INFO_STREAM("[LocalPlanner]: Dump zone " << zoneId << " has dug cell ratio " << (double) numDugCells / totalCells);
-    ROS_INFO_STREAM("[LocalPlanner]: It should be smaller than " << (1 - inactiveAreaRatio_));
-    active = active && ((double) numDugCells / totalCells) < (1 - inactiveAreaRatio_);
+    // number of already dug cells in the zone
+    ROS_INFO_STREAM("[LocalPlanner]: Dump zone " << zoneId << " has dug cell ratio " << (double) numCellsToBeDug / totalCells);
+    ROS_INFO_STREAM("[LocalPlanner]: It should be smaller than " <<  inactiveAreaRatio_);
+    active = active && ((double) numCellsToBeDug / totalCells) < inactiveAreaRatio_;
   }
 
 //  if (isDigging){
@@ -861,7 +874,7 @@ bool LocalPlanner::isZoneActive(int zoneId, bool isDigging){
 //      active = active && numCellsExcavationArea / totalCells < inactiveAreaRatio_;
 //    }
 //  }
-  ROS_INFO_STREAM("[LocalPlanner]: Zone " << zoneId << " is active: " << active << " (" << numDugCells << "/" << totalCells << ")" << " digging: " << isDigging);
+//  ROS_INFO_STREAM("[LocalPlanner]: Zone " << zoneId << " is active: " << active << " (" << numDugCells << "/" << totalCells << ")" << " digging: " << isDigging);
   if (active) {
     for (grid_map::PolygonIterator iterator(planningMap_, planningZones_.at(zoneId)); !iterator.isPastEnd(); ++iterator) {
       // get the position of the point
@@ -912,7 +925,7 @@ void LocalPlanner::resetDigDumpAreas(){
   createNewZones_ = true;
 }
 
-// this could quite noisy in the real world but it's good for testing
+// this could be quite noisy in the real world but it's good for testing
 void LocalPlanner::updateDugZones(){
   // iterate over the map and check if difference between the desired elevation and the elevation is less than the heightThreshold_
   // if it is, mark the cell as dug
@@ -923,8 +936,8 @@ void LocalPlanner::updateDugZones(){
     double elevation = planningMap_.at("elevation", index);
     double desiredElevation = planningMap_.at("desired_elevation", index);
     double heightDifference = std::max(0.0, elevation - desiredElevation);
-    int dugArea = planningMap_.at("excavation_mask", index);
-    if (heightDifference < heightThreshold_ && dugArea == -1) {
+    int toBeDugArea = planningMap_.at("excavation_mask", index);
+    if (heightDifference < heightThreshold_ && toBeDugArea == -1) {
       planningMap_.at("dug_area", index) = 1;
     }
   }
@@ -1557,6 +1570,10 @@ void LocalPlanner::findDumpPoint(){
 Eigen::Vector3d LocalPlanner::getDumpPoint(){
   // return the position using the dumpPointIterator_
   grid_map::Position dumpPoint;
+  // throw an exception if the dumpPointIndex_ of type Eigen::Array<int, 2 , 1> is not set
+  if (dumpPointIndex_.size() == 0) {
+    throw std::runtime_error("[LocalPlanner]: getDumpPoint: dumpPointIndex_ is not set");
+  }
   planningMap_.getPosition(dumpPointIndex_, dumpPoint);
   // vertical offset is introduced to avoid having to introduce a more complex planner for the arm
   Eigen::Vector3d dumpPoint_3d(dumpPoint.x(), dumpPoint.y(), dumpAtHeight_ + planningMap_.at("elevation", dumpPointIndex_));
@@ -1626,8 +1643,8 @@ std::vector<Eigen::Vector2d> LocalPlanner::getLeftCircularFrontSegmentPatch() {
   // the circle is sampled at 10 points
   double startAngle = M_PI / 5;
   std::vector<Eigen::Vector2d> vertices;
-  for (int i = 0; i < 10; i++) {
-    double angle = startAngle + i * M_PI / 25;
+  for (int i = 0; i < 9; i++) {
+    double angle = startAngle + i * M_PI / 30;
     Eigen::Vector2d vertex(dumpingZoneOuterRadius_ * cos(angle), dumpingZoneOuterRadius_ * sin(angle));
     vertices.push_back(vertex);
   }
@@ -1646,15 +1663,15 @@ std::vector<Eigen::Vector2d> LocalPlanner::getRightFrontPatch(){
   // that spans from the angle -1/5 pi to -1/2 pi
   // the circle is sampled at 10 points
   std::vector<Eigen::Vector2d> vertices;
-  for (int i = 0; i < 10; i++) {
-    double angle = -M_PI / 5 - i * M_PI / 25;
+  for (int i = 0; i < 9; i++) {
+    double angle = -M_PI / 5 - i * M_PI / 30;
     Eigen::Vector2d vertex(dumpingZoneOuterRadius_ * cos(angle), dumpingZoneOuterRadius_ * sin(angle));
     vertices.push_back(vertex);
   }
   // add vertices belonging to another arc with radius dumpingInnerRadius_
   // add them in the opposite order
   for (int i = 9; i >= 0; i--) {
-    double angle = -M_PI / 5 - i * M_PI / 25;
+    double angle = -M_PI / 5 - i * M_PI / 30;
     Eigen::Vector2d vertex(dumpingZoneInnerRadius_ * cos(angle), dumpingZoneInnerRadius_ * sin(angle));
     vertices.push_back(vertex);
   }
@@ -1667,8 +1684,8 @@ std::vector<Eigen::Vector2d> LocalPlanner::getRightCircularFrontSegmentPatch(){
   // the circle is sampled at 10 points
   double startAngle = -M_PI / 5;
   std::vector<Eigen::Vector2d> vertices;
-  for (int i = 0; i < 10; i++) {
-    double angle = startAngle - i * M_PI / 25;
+  for (int i = 0; i < 9; i++) {
+    double angle = startAngle - i * M_PI / 30;
     Eigen::Vector2d vertex(dumpingZoneOuterRadius_ * cos(angle), dumpingZoneOuterRadius_ * sin(angle));
     vertices.push_back(vertex);
   }
@@ -1782,7 +1799,7 @@ void LocalPlanner::addPlanningZonesToMap(std::vector<double> values){
 
 void LocalPlanner::updateWorkingArea() {
   // first we assign the dug layer to the untraversable areas
-//  planningMap_["working_area"] = planningMap_["dug_area"];
+  //  planningMap_["working_area"] = planningMap_["dug_area"];
   // iterate over the whole map and mark untraversable areas that differ more than heightTraversableThreshold_ from the original layer
   // with this heuristic we would like to exclude dump areas
   // accounting for dump areas is hard since dirt is constantly move around and marking and marking it could be error prone due to heading precision
