@@ -382,7 +382,7 @@ Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd, std::string 
   // get perpendicular vector in 2D (is it 2D?)
   Eigen::Vector3d w_P_dba = (-w_P_wd + w_P_wba).normalized();
 //  this->publishHeading(w_P_wd, w_P_dba, "map");
-
+//  Eigen::Vector3d C_ws = this->findShovelDesiredOrientation(w_P_wd, w_P_dba);
 
   // this takes care of the fact that we have a penetration phase
   Eigen::Vector3d w_P_wd_off = w_P_wd - radialOffset_ * w_P_dba;
@@ -430,6 +430,13 @@ Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd, std::string 
   volume += shovelVolumeBonus_;
   while (valid){
     Eigen::Vector3d w_P_next = w_P_wd_current + stepSize * w_P_dba;
+    // height is overriden
+    grid_map::Index nextIndex;
+    planningMap_.getIndex(w_P_next.head(2), nextIndex);
+    double nextDesiredElevation = planningMap_.at(targetLayer, nextIndex);
+    double nextElevation = planningMap_.at("elevation", nextIndex);
+    w_P_next(2) = elevation + std::max(desiredElevation - elevation, -0.35); // fix maximal depth
+
     // position of the left point of the shovel (l) in world frame
     Eigen::Vector3d w_posLeftShovel_wl = w_P_next + R_ws_d1.inverse() * s_posLeftShovel_cl;
     Eigen::Vector3d w_posRightShovel_wr = w_P_next + R_ws_d1.inverse() * s_posRightShovel_cr;
@@ -557,6 +564,68 @@ Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd, std::string 
   planningMap_["planning_elevation"] = planningMap_["elevation"];
   lock.unlock();
   return trajectory;
+}
+
+Trajectory LocalPlanner::getOptimalTrajectory(){
+  this->publishTrajectoryPoses(optimalDigTrajectory_.positions, optimalDigTrajectory_.orientations);
+  Eigen::Vector3d w_P_wd = optimalDigTrajectory_.positions.at(0);
+  // get normal at dig point
+  // w_P_wd is the digging point
+  // point below the surface
+  grid_map::Position wg_P_wd(w_P_wd(0), w_P_wd(1));
+  grid_map::Index wg_index;
+  planningMap_.getIndex(wg_P_wd, wg_index);
+  double elevation = excavationMappingPtr_->getElevation(wg_P_wd);
+  double desiredElevation = planningMap_.at("desired_elevation", wg_index);
+  // from w_P_wd we want compute the trajectory that scoops up most volume
+  // we procede in this way:
+  // 1. start tracing the trajectory from w_P_wd
+  // 2. while tracing the trajectory:
+  //    - if the trajectory is not valid, we stop tracing it i.e we check if shovel is full and if we reached the boundary of the working space
+  //    - if the trajectory is valid, we compute the next point in the trajectory and the current volume for the trajectory
+  // 3. when trajectory is not valid we stop and close the trajector
+  Eigen::Vector3d w_P_wb;
+  // get the transform between the ENDEFFECTOR_CONTACT frame and the BOOM frame using tf2
+  geometry_msgs::TransformStamped T_mba;
+  // get transform from base to cabin frame
+  try {
+    T_mba = tfBuffer_->lookupTransform("map", "BASE", ros::Time(0));
+  } catch (tf2::TransformException &ex) {
+    ROS_WARN("%s", ex.what());
+    ros::Duration(1.0).sleep();
+  }
+  // get the position of the BASE in the map frame
+  Eigen::Vector3d w_P_wba = Eigen::Vector3d(T_mba.transform.translation.x, T_mba.transform.translation.y, T_mba.transform.translation.z);
+  //  ROS_INFO_STREAM("Base origin in map frame: " << w_P_wba.transpose());
+  double roll_b, pitch_b, yaw_b;
+  tf2::Quaternion R_mba_q = tf2::Quaternion(T_mba.transform.rotation.x, T_mba.transform.rotation.y, T_mba.transform.rotation.z, T_mba.transform.rotation.w);
+  tf2::Matrix3x3(R_mba_q).getRPY(roll_b, pitch_b, yaw_b);
+  // base to digging point in world frame
+  Eigen::Vector3d w_P_bad = w_P_wd - w_P_wba;
+  //  ROS_INFO_STREAM("[LocalPlanner]: digging point wrt base in world frame: " << w_P_bad.transpose());
+  // transform from world to base frame using R_mba
+  // convert R_mba to eigen quaternion
+  Eigen::Quaterniond R_mba_qe(R_mba_q.w(), R_mba_q.x(), R_mba_q.y(), R_mba_q.z());
+  // transform w_P_bad from world to base frame using R_mba
+  Eigen::Vector3d ba_P_bad = R_mba_qe.inverse() * w_P_bad;
+
+  // relative heading
+  //  ROS_INFO_STREAM("[LocalPlanner]: digging point wrt base in base frame: " << ba_P_bad.transpose());
+  double relativeHeading = atan2(ba_P_bad(1), ba_P_bad(0));
+  //  ROS_INFO_STREAM("Base heading in map frame: " <<  yaw_b);
+  //  ROS_INFO_STREAM("[LocalPlanner]: opt traj relative heading is " << relativeHeading);
+  double heading =  - yaw_b - relativeHeading;
+  //  ROS_INFO_STREAM("[LocalPlanner]: opt traj heading " << heading);
+
+  //  ROS_INFO_STREAM("[LocalPlanner]: True boom heading " << shovelYaw);
+  // transform the yaw angle into a direction vector
+  // get perpendicular vector in 2D (is it 2D?)
+  Eigen::Vector3d w_P_dba = (-w_P_wd + w_P_wba).normalized();
+  //  this->publishHeading(w_P_wd, w_P_dba, "map");
+  Eigen::Vector3d C_ws = this->findShovelDesiredOrientation(w_P_wd, w_P_dba);
+  ROS_INFO_STREAM("[LocalPlanner]: Shovel desired orientation: " << C_ws.transpose());
+  this->publishTrajectoryPoses(optimalDigTrajectory_.positions, optimalDigTrajectory_.orientations);
+  return optimalDigTrajectory_;
 }
 
 double LocalPlanner::volumeObjective(Trajectory trajectory){
@@ -759,13 +828,15 @@ void LocalPlanner::choosePlanningZones(){
  // set dumpingScore to max
  double dumpingScore = std::numeric_limits<double>::max();
  for (int i = 1; i < 5; i++) {
-   bool zoneActive = this->isZoneActive(i, false);
-   ROS_INFO_STREAM("[LocalPlanner]: Dumping Zone " << i << " is active: " << zoneActive);
-   if (zoneActive && digZoneId_ != -1) {
-     double zoneDumpingScore = this->getDumpingScore(i);
-     if (zoneDumpingScore < dumpingScore) {
-       dumpingScore = zoneDumpingScore;
-       dumpZoneId_ = i;
+   if (i != digZoneId_) {
+     bool zoneActive = this->isZoneActive(i, false);
+     ROS_INFO_STREAM("[LocalPlanner]: Dumping Zone " << i << " is active: " << zoneActive);
+     if (zoneActive && digZoneId_ != -1) {
+       double zoneDumpingScore = this->getDumpingScore(i);
+       if (zoneDumpingScore < dumpingScore) {
+         dumpingScore = zoneDumpingScore;
+         dumpZoneId_ = i;
+       }
      }
    }
  }
@@ -789,7 +860,9 @@ void LocalPlanner::choosePlanningZones(){
    }
  } else {
    if (digZoneId_ == dumpZoneId_) {
-     ROS_WARN("[LocalPlanner]: dig zone and dump zone cannot be the same");
+     ROS_ERROR("[LocalPlanner]: dig zone and dump zone cannot be the same");
+     // quit the no
+     ros::shutdown();
    }
  }
  // publish the updated map
@@ -1343,7 +1416,7 @@ Trajectory LocalPlanner::getDigTrajectoryWorldFrame(Eigen::Vector3d& w_P_wd){
   // transform quaternion orientation into a 3d vector
 
   // shovel orientation in world frame
-//  Eigen::Vector3d C_ws = this->findShovelDesiredOrientation(w_P_wd, w_P_bd);
+  Eigen::Vector3d C_ws = this->findShovelDesiredOrientation(w_P_wd, w_P_bd);
 
 //  ROS_INFO_STREAM("[LocalPlanner]: digging vector in world frame " << w_P_bd.transpose());
   // get heading from the vector, this is useful if you wanna go from distance to coordinates

@@ -81,10 +81,7 @@ class LocalPlanner {
 
   void setDigTrajectory(Trajectory& trajectory) {digTrajectory_ = trajectory;};
   Trajectory getDigTrajectory() {return digTrajectory_;};
-  Trajectory getOptimalTrajectory() {
-    this->publishTrajectoryPoses(optimalDigTrajectory_.positions, optimalDigTrajectory_.orientations);
-    return optimalDigTrajectory_;
-  };
+  Trajectory getOptimalTrajectory();
 
   Eigen::Vector3d projectVectorOntoSubspace(Eigen::Vector3d& vector, Eigen::Matrix3Xd& subspaceBasis);
   void markDigDumpAreas();
