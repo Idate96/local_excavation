@@ -34,6 +34,7 @@ class LocalPlanner {
    * @return
    */
   bool updatePlanningMap();
+  grid_map::GridMap getPlanningMap(){return planningMap_;}
   void setLocalMap(grid_map::GridMap& localMap);
 
   // getters
