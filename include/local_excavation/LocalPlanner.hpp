@@ -214,7 +214,7 @@ private:
 
   // dumping spot selection
   double dumpAtHeight_;
-  double radialOffset_ = 0.2;
+  double radialOffset_;
   double heightPrecision_;
   double xDumpWeight_;
   double yDumpWeight_;

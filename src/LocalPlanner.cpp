@@ -74,7 +74,8 @@ bool LocalPlanner::loadParameters() {
                 nh_.param<double>("/local_excavation/missing_cells_threshold", missingCellsThreshold_, 0.04) &&
                 nh_.param<double>("/local_excavation/height_dig_area_threshold", heightDigAreaThreshold_, 0.05) &&
                 nh_.param<double>("/local_excavation/volume_dirt_weight", volumeDirtWeight_, -0.5) &&
-                nh_.param<double>("/local_excavation/height_dump_threshold", heightDumpThreshold_, 1.1);
+                nh_.param<double>("/local_excavation/height_dump_threshold", heightDumpThreshold_, 1.1) &&
+                nh_.param<double>("/local_excavation/radial_offset", radialOffset_, 0.3);
 
   if (!loaded) {
     ROS_ERROR("[LocalPlanner]: Could not load parameters for local planner");
