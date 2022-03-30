@@ -203,6 +203,8 @@ private:
   double headingWeight_;
 
   // parameters
+  // dig trajectory depth
+  double maxDigDepth_;
   // areas with more than this ratio (dug area / total area) of the total area are considered not active
   double inactiveAreaRatio_;
   double excavationAreaRatio_;
