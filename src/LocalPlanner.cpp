@@ -467,6 +467,10 @@ Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd, std::string 
       if (planningMap_.at("excavation_mask", index) != -1){
         volumeSign = -1;
       }
+      // if the value of terrain elevation is nan do not compute the volume
+      if (std::isnan(terrainElevation)){
+        continue;
+      }
       // set the value if the elevation at the current position in layer elevation is lower than the current value
       if (currentPointElevation < terrainElevation) {
         data(index(0), index(1)) = currentPointElevation;
