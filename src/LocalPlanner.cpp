@@ -1159,129 +1159,164 @@ void LocalPlanner::createPlanningZones(){
   zoneCenters_.clear();
   // get vertices for the zones
   std::vector<Eigen::Vector2d> b_PosDigVertex_bd = getDiggingPatchVertices();
-  std::vector<Eigen::Vector2d> w_PosDigVertex_wd;
   std::vector<Eigen::Vector2d> b_PosDumpFrontLeft_bdu = getLeftCircularFrontSegmentPatch();
-  std::vector<Eigen::Vector2d> w_PosDumpFrontLeft_wdu;
   std::vector<Eigen::Vector2d> b_PosDumpFrontRight_bdu = getRightCircularFrontSegmentPatch();
-  std::vector<Eigen::Vector2d> w_PosDumpFrontRight_wdu;
   std::vector<Eigen::Vector2d> b_PosDumpBackLeft_bdu = getLeftCircularBackSegmentPatch();
-  std::vector<Eigen::Vector2d> w_PosDumpBackLeft_wdu;
   std::vector<Eigen::Vector2d> b_PosDumpBackRight_bdu = getRightCircularBackSegmentPatch();
-  std::vector<Eigen::Vector2d> w_PosDumpBackRight_wdu;
 
-  // transform the vertices from base frame to world frame
-  geometry_msgs::TransformStamped T_bw;
-  // get transform from world to base frame
-  // wait until transform is available
-  //  while (ros::ok() && !tfBuffer_->canTransform("BASE", "map", ros::Time(0))) {
-  //    ROS_INFO_ONCE("[LocalPlanner]: waiting for transform from world to base_link");
-  //    ros::Duration(0.1).sleep();
-  //  }
-  std::vector<Eigen::Vector2d> w_PosDigVertex_bd;
-  try {
-    T_bw = tfBuffer_->lookupTransform("map", "BASE", ros::Time(0));
-  } catch (tf2::TransformException &ex) {
-    ROS_WARN("[LocalPlanner]: %s", ex.what());
-    ros::Duration(1.0).sleep();
-  }
-  // get translation vector from T_bw
-  Eigen::Vector3d t_bw;
-  Eigen::Quaterniond targetOrientation;
-  if (isWorkspacePoseSet_){
-//    ROS_INFO_STREAM("[LocalPlanner]: using set workspace pose");
-    targetOrientation = workspaceOrientation_;
-    // todo: put proper translation vector
-    t_bw = Eigen::Vector3d(T_bw.transform.translation.x, T_bw.transform.translation.y, T_bw.transform.translation.z);
-
-    isWorkspacePoseSet_ = false;
-  } else {
-    targetOrientation = Eigen::Quaterniond(T_bw.transform.rotation.w, T_bw.transform.rotation.x, T_bw.transform.rotation.y, T_bw.transform.rotation.z);
-    t_bw = Eigen::Vector3d(T_bw.transform.translation.x, T_bw.transform.translation.y, T_bw.transform.translation.z);
-  }
-  // get yaw angle
-  // transform the vertices
   Eigen::Vector2d frontZoneCenter;
-  for (Eigen::Vector2d vertex : b_PosDigVertex_bd) {
-      Eigen::Vector3d vertex_eigen(vertex(0), vertex(1), 0);
-      Eigen::Vector3d vertex_w_eigen;
-      vertex_w_eigen = targetOrientation.toRotationMatrix() * vertex_eigen + t_bw;
-      Eigen::Vector2d vertex_w(vertex_w_eigen(0), vertex_w_eigen(1));
-      frontZoneCenter += vertex_w;
-      w_PosDigVertex_bd.push_back(vertex_w);
-    }
-    frontZoneCenter /= b_PosDigVertex_bd.size();
+  Eigen::Vector2d frontLeftZoneCenter;
+  Eigen::Vector2d frontRightZoneCenter;
+  Eigen::Vector2d backLeftZoneCenter;
+  Eigen::Vector2d backRightZoneCenter;
 
-    // get the center
-    Eigen::Vector2d frontLeftZoneCenter;
-    for (Eigen::Vector2d vertex : b_PosDumpFrontLeft_bdu) {
-      Eigen::Vector3d vertex_eigen(vertex(0), vertex(1), 0);
-      Eigen::Vector3d vertex_w_eigen;
-      vertex_w_eigen = targetOrientation.toRotationMatrix() * vertex_eigen + t_bw;
-      Eigen::Vector2d vertex_w(vertex_w_eigen(0), vertex_w_eigen(1));
-      frontLeftZoneCenter += vertex_w;
-      w_PosDumpFrontLeft_wdu.push_back(vertex_w);
-    }
-    frontLeftZoneCenter /= b_PosDumpFrontLeft_bdu.size();
-
-    // get the center
-    Eigen::Vector2d frontRightZoneCenter;
-    for (Eigen::Vector2d vertex : b_PosDumpFrontRight_bdu) {
-      Eigen::Vector3d vertex_eigen(vertex(0), vertex(1), 0);
-      Eigen::Vector3d vertex_w_eigen;
-      vertex_w_eigen = targetOrientation.toRotationMatrix() * vertex_eigen + t_bw;
-      Eigen::Vector2d vertex_w(vertex_w_eigen(0), vertex_w_eigen(1));
-      frontRightZoneCenter += vertex_w;
-      w_PosDumpFrontRight_wdu.push_back(vertex_w);
-    }
-    frontRightZoneCenter /= b_PosDumpFrontRight_bdu.size();
-
-    // get the center
-    Eigen::Vector2d backLeftZoneCenter;
-    for (Eigen::Vector2d vertex : b_PosDumpBackLeft_bdu) {
-      if (vertex(0) > 50){
-        ROS_INFO_STREAM("[LocalPlanner]: skipping vertex " << vertex.transpose());
+  // diggingFrame_ defines the frame in which the vertices are defined
+  switch (diggingFrame_) {
+    case BASE:
+    {
+      // base frame
+      // compute the zones centers by averaging the coordinates of the vertices
+      Eigen::Vector2d frontZoneCenter;
+      for (int i = 0; i < b_PosDigVertex_bd.size(); i++) {
+        frontZoneCenter += b_PosDigVertex_bd.at(i);
       }
-      Eigen::Vector3d vertex_eigen(vertex(0), vertex(1), 0);
-      Eigen::Vector3d vertex_w_eigen;
-      vertex_w_eigen = targetOrientation.toRotationMatrix() * vertex_eigen + t_bw;
-      Eigen::Vector2d vertex_w(vertex_w_eigen(0), vertex_w_eigen(1));
-      if (vertex_w(0) > 50){
-        ROS_INFO_STREAM("[LocalPlanner]: skipping world frame  vertex " << vertex_w.transpose());
+      frontZoneCenter /= b_PosDigVertex_bd.size();
+
+      for (int i = 0; i < b_PosDumpFrontLeft_bdu.size(); i++) {
+        frontLeftZoneCenter += b_PosDumpFrontLeft_bdu.at(i);
       }
-      backLeftZoneCenter += vertex_w;
-      w_PosDumpBackLeft_wdu.push_back(vertex_w);
+      frontLeftZoneCenter /= b_PosDumpFrontLeft_bdu.size();
+
+      for (int i = 0; i < b_PosDumpFrontRight_bdu.size(); i++) {
+        frontRightZoneCenter += b_PosDumpFrontRight_bdu.at(i);
+      }
+      frontRightZoneCenter /= b_PosDumpFrontRight_bdu.size();
+
+      for (int i = 0; i < b_PosDumpBackLeft_bdu.size(); i++) {
+        backLeftZoneCenter += b_PosDumpBackLeft_bdu.at(i);
+      }
+      backLeftZoneCenter /= b_PosDumpBackLeft_bdu.size();
+
+      for (int i = 0; i < b_PosDumpBackRight_bdu.size(); i++) {
+        backRightZoneCenter += b_PosDumpBackRight_bdu.at(i);
+      }
+      backRightZoneCenter /= b_PosDumpBackRight_bdu.size();
+
+      // create the polygon for the digging zone
+      this->publishWorkspacePts(b_PosDigVertex_bd, "BASE");
+      digZone_ = planning_utils::toPolygon(b_PosDigVertex_bd);                      // zone 0
+      dumpingLeftFrontZone_ = planning_utils::toPolygon(b_PosDumpFrontLeft_bdu);    // zone 1
+      dumpingRightFrontZone_ = planning_utils::toPolygon(b_PosDumpFrontRight_bdu);  // zone 2
+      dumpingLeftBackZone_ = planning_utils::toPolygon(b_PosDumpBackLeft_bdu);      // zone 3
+      dumpingRightBackZone_ = planning_utils::toPolygon(b_PosDumpBackRight_bdu);    // zone 4
+      break;
     }
-    backLeftZoneCenter /= b_PosDumpBackLeft_bdu.size();
+    case MAP:
+    {
+      // map frame
+      std::vector<Eigen::Vector2d> w_PosDigVertex_wd;
+      std::vector<Eigen::Vector2d> w_PosDumpFrontLeft_wdu;
+      std::vector<Eigen::Vector2d> w_PosDumpFrontRight_wdu;
+      std::vector<Eigen::Vector2d> w_PosDumpBackLeft_wdu;
+      std::vector<Eigen::Vector2d> w_PosDumpBackRight_wdu;
 
-    // get the center
-    Eigen::Vector2d backRightZoneCenter;
-    for (Eigen::Vector2d vertex : b_PosDumpBackRight_bdu) {
-      Eigen::Vector3d vertex_eigen(vertex(0), vertex(1), 0);
-      Eigen::Vector3d vertex_w_eigen;
-      vertex_w_eigen = targetOrientation.toRotationMatrix() * vertex_eigen + t_bw;
-      Eigen::Vector2d vertex_w(vertex_w_eigen(0), vertex_w_eigen(1));
-      backRightZoneCenter += vertex_w;
-      w_PosDumpBackRight_wdu.push_back(vertex_w);
+      // transform the vertices from base frame to world frame
+      geometry_msgs::TransformStamped T_bw;
+      std::vector<Eigen::Vector2d> w_PosDigVertex_bd;
+      try {
+        T_bw = tfBuffer_->lookupTransform("map", "BASE", ros::Time(0));
+      } catch (tf2::TransformException& ex) {
+        ROS_WARN("[LocalPlanner]: %s", ex.what());
+        ros::Duration(1.0).sleep();
+      }
+      // get translation vector from T_bw
+      Eigen::Vector3d t_bw;
+      Eigen::Quaterniond targetOrientation;
+      if (isWorkspacePoseSet_) {
+        //    ROS_INFO_STREAM("[LocalPlanner]: using set workspace pose");
+        targetOrientation = workspaceOrientation_;
+        // todo: put proper translation vector
+        t_bw = Eigen::Vector3d(T_bw.transform.translation.x, T_bw.transform.translation.y, T_bw.transform.translation.z);
+
+        isWorkspacePoseSet_ = false;
+      } else {
+        targetOrientation =
+            Eigen::Quaterniond(T_bw.transform.rotation.w, T_bw.transform.rotation.x, T_bw.transform.rotation.y, T_bw.transform.rotation.z);
+        t_bw = Eigen::Vector3d(T_bw.transform.translation.x, T_bw.transform.translation.y, T_bw.transform.translation.z);
+      }
+      // get yaw angle
+      // transform the vertices
+      for (Eigen::Vector2d vertex : b_PosDigVertex_bd) {
+        Eigen::Vector3d vertex_eigen(vertex(0), vertex(1), 0);
+        Eigen::Vector3d vertex_w_eigen;
+        vertex_w_eigen = targetOrientation.toRotationMatrix() * vertex_eigen + t_bw;
+        Eigen::Vector2d vertex_w(vertex_w_eigen(0), vertex_w_eigen(1));
+        frontZoneCenter += vertex_w;
+        w_PosDigVertex_bd.push_back(vertex_w);
+      }
+      frontZoneCenter /= b_PosDigVertex_bd.size();
+
+      // get the center
+      for (Eigen::Vector2d vertex : b_PosDumpFrontLeft_bdu) {
+        Eigen::Vector3d vertex_eigen(vertex(0), vertex(1), 0);
+        Eigen::Vector3d vertex_w_eigen;
+        vertex_w_eigen = targetOrientation.toRotationMatrix() * vertex_eigen + t_bw;
+        Eigen::Vector2d vertex_w(vertex_w_eigen(0), vertex_w_eigen(1));
+        frontLeftZoneCenter += vertex_w;
+        w_PosDumpFrontLeft_wdu.push_back(vertex_w);
+      }
+      frontLeftZoneCenter /= b_PosDumpFrontLeft_bdu.size();
+
+      // get the center
+      for (Eigen::Vector2d vertex : b_PosDumpFrontRight_bdu) {
+        Eigen::Vector3d vertex_eigen(vertex(0), vertex(1), 0);
+        Eigen::Vector3d vertex_w_eigen;
+        vertex_w_eigen = targetOrientation.toRotationMatrix() * vertex_eigen + t_bw;
+        Eigen::Vector2d vertex_w(vertex_w_eigen(0), vertex_w_eigen(1));
+        frontRightZoneCenter += vertex_w;
+        w_PosDumpFrontRight_wdu.push_back(vertex_w);
+      }
+      frontRightZoneCenter /= b_PosDumpFrontRight_bdu.size();
+
+      // get the center
+      for (Eigen::Vector2d vertex : b_PosDumpBackLeft_bdu) {
+        if (vertex(0) > 50) {
+          ROS_INFO_STREAM("[LocalPlanner]: skipping vertex " << vertex.transpose());
+        }
+        Eigen::Vector3d vertex_eigen(vertex(0), vertex(1), 0);
+        Eigen::Vector3d vertex_w_eigen;
+        vertex_w_eigen = targetOrientation.toRotationMatrix() * vertex_eigen + t_bw;
+        Eigen::Vector2d vertex_w(vertex_w_eigen(0), vertex_w_eigen(1));
+        if (vertex_w(0) > 50) {
+          ROS_INFO_STREAM("[LocalPlanner]: skipping world frame  vertex " << vertex_w.transpose());
+        }
+        backLeftZoneCenter += vertex_w;
+        w_PosDumpBackLeft_wdu.push_back(vertex_w);
+      }
+      backLeftZoneCenter /= b_PosDumpBackLeft_bdu.size();
+
+      // get the center
+      for (Eigen::Vector2d vertex : b_PosDumpBackRight_bdu) {
+        Eigen::Vector3d vertex_eigen(vertex(0), vertex(1), 0);
+        Eigen::Vector3d vertex_w_eigen;
+        vertex_w_eigen = targetOrientation.toRotationMatrix() * vertex_eigen + t_bw;
+        Eigen::Vector2d vertex_w(vertex_w_eigen(0), vertex_w_eigen(1));
+        backRightZoneCenter += vertex_w;
+        w_PosDumpBackRight_wdu.push_back(vertex_w);
+      }
+      backRightZoneCenter /= b_PosDumpBackRight_bdu.size();
+
+      // create the polygon for the digging zone
+      this->publishWorkspacePts(w_PosDigVertex_bd, "map");
+      digZone_ = planning_utils::toPolygon(w_PosDigVertex_bd);                      // zone 0
+      dumpingLeftFrontZone_ = planning_utils::toPolygon(w_PosDumpFrontLeft_wdu);    // zone 1
+      dumpingRightFrontZone_ = planning_utils::toPolygon(w_PosDumpFrontRight_wdu);  // zone 2
+      dumpingLeftBackZone_ = planning_utils::toPolygon(w_PosDumpBackLeft_wdu);      // zone 3
+      dumpingRightBackZone_ = planning_utils::toPolygon(w_PosDumpBackRight_wdu);    // zone 4
+      break;
     }
-    backRightZoneCenter /= b_PosDumpBackRight_bdu.size();
+  }
 
-
-//  // transform the vertices from base frame to world frame
-//  for (Eigen::Vector2d vertex : b_PosDigVertex_bd) {
-//    Eigen::Vector3d vertex_eigen(vertex(0), vertex(1), 0);
-//    Eigen::Vector3d vertex_w_eigen;
-//    tf2::doTransform(vertex_eigen, vertex_w_eigen, T_bw);
-//    Eigen::Vector2d vertex_w(vertex_w_eigen(0), vertex_w_eigen(1));
-//    w_PosDigVertex_bd.push_back(vertex_w);
-//  }
-
-  // create the polygon for the digging zone
-  this->publishWorkspacePts(w_PosDigVertex_bd, "map");
-  digZone_ = planning_utils::toPolygon(w_PosDigVertex_bd); // zone 0
-  dumpingLeftFrontZone_ = planning_utils::toPolygon(w_PosDumpFrontLeft_wdu); // zone 1
-  dumpingRightFrontZone_ = planning_utils::toPolygon(w_PosDumpFrontRight_wdu); // zone 2
-  dumpingLeftBackZone_ = planning_utils::toPolygon(w_PosDumpBackLeft_wdu); // zone 3
-  dumpingRightBackZone_ = planning_utils::toPolygon(w_PosDumpBackRight_wdu); // zone 4
 
   // print the polygon
   //  for (grid_map::PolygonIterator iterator(excavationMappingPtr_->gridMap_, digZone); !iterator.isPastEnd(); ++iterator) {

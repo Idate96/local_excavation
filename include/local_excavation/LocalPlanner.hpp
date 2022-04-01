@@ -124,6 +124,9 @@ class LocalPlanner {
   std::vector<Eigen::Vector2d> getRightCircularBackSegmentPatch();
   void syncLayers();
 
+  enum DiggingFrame {BASE, MAP};
+  DiggingFrame diggingFrame_ = MAP;
+
 private:
   // sub-map representing the reachable workspace of the robot
   grid_map::GridMap localMap_ = grid_map::GridMap();
@@ -136,6 +139,10 @@ private:
 
   // local workspace
   bool isWorkspacePoseSet_ = false;
+  // enum for the digging frame, it can be either "BASE" or "map"
+  // this is particularly useful for testing as the digging in base frame eleminates the need to use navigation and mapping to get the robot to the digging point
+
+
   Eigen::Vector3d workspacePos_ = Eigen::Vector3d::Zero();
   Eigen::Quaterniond workspaceOrientation_ = Eigen::Quaterniond::Identity();
 
