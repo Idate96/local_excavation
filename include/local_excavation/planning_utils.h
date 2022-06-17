@@ -11,7 +11,6 @@
 namespace planning_utils {
 
 inline grid_map::Polygon toPolygon(std::vector<Eigen::Vector2d> points) {
-  ROS_INFO_STREAM("[PolygonConvertion]: points size: " << points.size());
   grid_map::Polygon polygon;
   polygon.setFrameId("map");
   for (auto& point : points) {

@@ -32,4 +32,4 @@ local_excavation:
   height_dig_area_threshold: 0.1
   volume_dirt_weight: -1
   radial_offset: 0.3
-  max_dig_depth: 0.3
+  max_dig_depth: 0.2
