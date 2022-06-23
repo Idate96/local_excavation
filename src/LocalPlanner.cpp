@@ -41,6 +41,8 @@ LocalPlanner::LocalPlanner(std::unique_ptr<excavation_mapping::ExcavationMapping
   workingAreaPublisher_ = nh_.advertise<grid_map_msgs::GridMap>("/local_excavation/traversable_area", 1, true);
   // load the parameters
   this->loadParameters();
+  // save map in the directory of the package/maps folder
+  saveMapPath_ = ros::package::getPath("local_excavation") + "/maps/latest.bag";
 };
 
 bool LocalPlanner::loadParameters() {
@@ -77,7 +79,6 @@ bool LocalPlanner::loadParameters() {
                 nh_.param<double>("/local_excavation/height_dump_threshold", heightDumpThreshold_, 1.1) &&
                 nh_.param<double>("/local_excavation/radial_offset", radialOffset_, 0.3) &&
                 nh_.param<double>("/local_excavation/max_dig_depth", maxDigDepth_, 0.3);
-
   if (!loaded) {
     ROS_ERROR("[LocalPlanner]: Could not load parameters for local planner");
     return false;
@@ -435,7 +436,6 @@ Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd, std::string 
   double volume = 0;
   std::vector<double> stepVolumes;
   double workspaceVolume = 0;
-  grid_map::Matrix& data = planningMap_["planning_elevation"];
   grid_map::Matrix& workspace = planningMap_["planning_zones"];
 
   Eigen::Vector3d s_posLeftShovel_cl(0.0, 0.75, 0.0);
@@ -500,7 +500,6 @@ Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd, std::string 
       //      }
       // set the value if the elevation at the current position in layer elevation is lower than the current value
       if (currentPointElevation < terrainElevation) {
-        data(index(0), index(1)) = currentPointElevation;
         elevationChange += terrainElevation - currentPointElevation;
         if (workspace(index(0), index(1)) < 0) {
           double cellVolume = planningMap_.getResolution() * planningMap_.getResolution() * (terrainElevation - currentPointElevation);
@@ -2024,6 +2023,11 @@ void LocalPlanner::publishWorkingArea() {
   grid_map_msgs::GridMap message;
   grid_map::GridMapRosConverter::toMessage(planningMap_, message);
   workingAreaPublisher_.publish(message);
+}
+
+void LocalPlanner::saveCurrentPlanningMap(){
+  // save the current planning map to a bag file
+  grid_map::GridMapRosConverter::saveToBag(planningMap_, saveMapPath_, "grid_map");
 }
 
 //

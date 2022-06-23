@@ -105,6 +105,7 @@ class LocalPlanner {
   void publishHeading(Eigen::Vector3d position, Eigen::Vector3d direction, std::string frameId) const;
   void publishShovelFilter(std::vector<Eigen::Vector2d> workspacePts, std::string frameId);
   void publishWorkingArea();
+  void saveCurrentPlanningMap();
 
   std::unique_ptr<excavation_mapping::ExcavationMapping> excavationMappingPtr_;
   void addPlanningZonesToMap(std::vector<double> values);
@@ -254,6 +255,8 @@ private:
   int currentTrackId = 0;
   // param to mark working areas that you can't step over
   double heightTraversableThreshold_;
+  // saving params maps
+  std::string saveMapPath_;
 
 };
 
