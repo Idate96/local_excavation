@@ -749,6 +749,10 @@ void LocalPlanner::optimizeTrajectory() {
   // iterate over all the points belonging to the workspace polygon and compute a feasable trajectory starting from each point
   // and find the point that maximizes the objective function
   // check that digZoneId_ is between 0 and and 2
+  // print available layers of planningMap_
+  for (auto layer : planningMap_.getLayers()) {
+    ROS_INFO_STREAM("[LocalPlanner]: Planning map layer: " << layer);
+  }
   std::string targetLayer;
   if (digZoneId_ < 0 || digZoneId_ > 2) {
     ROS_ERROR("[LocalPlanner]: cannot compute optimal trajectory, digZoneId_ is not between 0 and 2");
