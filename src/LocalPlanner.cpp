@@ -771,6 +771,7 @@ void LocalPlanner::optimizeTrajectory() {
     // get the position of the point
     grid_map::Position diggingPoint;
     planningMap_.getPosition(*iterator, diggingPoint);
+    ROS_INFO_STREAM("[LocalPlanner]: Digging point: " << diggingPoint.x() << " " << diggingPoint.y());
     // get the elevation of the point
     double elevation = excavationMappingPtr_->getElevation(diggingPoint);
     // if the elevation is not nan compute the trajectory
@@ -779,6 +780,7 @@ void LocalPlanner::optimizeTrajectory() {
       Eigen::Vector3d w_P_wd(diggingPoint.x(), diggingPoint.y(), elevation);
       Trajectory trajectory = this->computeTrajectory(w_P_wd, targetLayer);
       double objective = this->volumeObjective(trajectory);
+      ROS_INFO_STREAM("[LocalPlanner]: Objective: " << objective);
       //    ROS_INFO_STREAM("[LocalPlanner]: Objective " << objective);
       if (objective > maxObjective) {
         bestTrajectory = trajectory;
