@@ -743,7 +743,9 @@ double LocalPlanner::volumeObjective(Trajectory trajectory) {
 }
 
 void LocalPlanner::optimizeTrajectory() {
+  ROS_INFO_STREAM("[LocalPlanner]: Optimizing trajectory");
   this->updatePlanningMap();
+  ROS_INFO_STREAM("[LocalPlanner]: Planning map updated");
   // iterate over all the points belonging to the workspace polygon and compute a feasable trajectory starting from each point
   // and find the point that maximizes the objective function
   // check that digZoneId_ is between 0 and and 2
