@@ -42,43 +42,45 @@ LocalPlanner::LocalPlanner(std::unique_ptr<excavation_mapping::ExcavationMapping
   // load the parameters
   this->loadParameters();
   // save map in the directory of the package/maps folder
-  saveMapPath_ = ros::package::getPath("local_excavation") + "/maps/latest.bag";
 };
 
 bool LocalPlanner::loadParameters() {
-  bool loaded = nh_.param<double>("/local_excavation/height_precision", heightPrecision_, 0.1) &&
-                nh_.param<double>("/local_excavation/inner_digging_radius", circularWorkspaceInnerRadius_, 6) &&
-                nh_.param<double>("/local_excavation/outer_digging_radius", circularWorkspaceOuterRadius_, 8) &&
-                nh_.param<double>("/local_excavation/inner_dumping_radius", dumpingZoneInnerRadius_, 4.5) &&
-                nh_.param<double>("/local_excavation/outer_dumping_radius", dumpingZoneOuterRadius_, 8) &&
-                nh_.param<double>("/local_excavation/min_distance_shovel_to_base", minDistanceShovelToBase_, 3.5) &&
-                nh_.param<double>("/local_excavation/workspace_angle", circularWorkspaceAngle_, M_PI / 2) &&
-                nh_.param<double>("/local_excavation/max_volume", maxVolume_, 0.5) &&
-                nh_.param<double>("/local_excavation/volume_weight", volumeWeight_, 1) &&
-                nh_.param<double>("/local_excavation/distance_weight", distanceWeight_, 0.005) &&
-                nh_.param<double>("/local_excavation/heading_weight", headingWeight_, 0.05) &&
-                nh_.param<double>("/local_excavation/dump_height", dumpAtHeight_, 0.9) &&
-                nh_.param<double>("/local_excavation/volume_dirt_threshold", volumeDirtThreshold_, 0.1) &&
-                nh_.param<double>("/local_excavation/height_dirt_threshold", heightDirtThreshold_, 0.5) &&
-                nh_.param<double>("/local_excavation/volume_threshold", volumeThreshold_, 0.5) &&
-                nh_.param<double>("/local_excavation/height_threshold", heightThreshold_, 0.5) &&
-                nh_.param<double>("/local_excavation/inactive_area_ratio", inactiveAreaRatio_, .5) &&
-                nh_.param<double>("/local_excavation/dumping_distance_weight", dumpingZoneDistanceWeight_, .5) &&
-                nh_.param<double>("/local_excavation/dig_dump_distance_weight", digDumpDistanceWeight_, 1.) &&
-                nh_.param<double>("/local_excavation/x_bias_weight", xBiasWeight_, 1.) &&
-                nh_.param<double>("/local_excavation/y_bias_weight", yBiasWeight_, 1.) &&
-                nh_.param<double>("/local_excavation/excavation_area_ratio", excavationAreaRatio_, .1) &&
-                nh_.param<double>("/local_excavation/x_dump_weight", xDumpWeight_, -1.) &&
-                nh_.param<double>("/local_excavation/y_dump_weight", yDumpWeight_, 1.) &&
-                nh_.param<double>("/local_excavation/dump_cells_weight", dumpCellsWeight_, 0.1) &&
-                nh_.param<double>("/local_excavation/height_traversable_threshold", heightTraversableThreshold_, 0.5) &&
-                nh_.param<double>("/local_excavation/bonus_volume", shovelVolumeBonus_, 0.05) &&
-                nh_.param<double>("/local_excavation/missing_cells_threshold", missingCellsThreshold_, 0.04) &&
-                nh_.param<double>("/local_excavation/height_dig_area_threshold", heightDigAreaThreshold_, 0.05) &&
-                nh_.param<double>("/local_excavation/volume_dirt_weight", volumeDirtWeight_, -0.5) &&
-                nh_.param<double>("/local_excavation/height_dump_threshold", heightDumpThreshold_, 1.1) &&
-                nh_.param<double>("/local_excavation/radial_offset", radialOffset_, 0.3) &&
-                nh_.param<double>("/local_excavation/max_dig_depth", maxDigDepth_, 0.3);
+  bool loaded =
+      nh_.param<double>("/local_excavation/height_precision", heightPrecision_, 0.1) &&
+      nh_.param<double>("/local_excavation/inner_digging_radius", circularWorkspaceInnerRadius_, 6) &&
+      nh_.param<double>("/local_excavation/outer_digging_radius", circularWorkspaceOuterRadius_, 8) &&
+      nh_.param<double>("/local_excavation/inner_dumping_radius", dumpingZoneInnerRadius_, 4.5) &&
+      nh_.param<double>("/local_excavation/outer_dumping_radius", dumpingZoneOuterRadius_, 8) &&
+      nh_.param<double>("/local_excavation/min_distance_shovel_to_base", minDistanceShovelToBase_, 3.5) &&
+      nh_.param<double>("/local_excavation/workspace_angle", circularWorkspaceAngle_, M_PI / 2) &&
+      nh_.param<double>("/local_excavation/max_volume", maxVolume_, 0.5) &&
+      nh_.param<double>("/local_excavation/volume_weight", volumeWeight_, 1) &&
+      nh_.param<double>("/local_excavation/distance_weight", distanceWeight_, 0.005) &&
+      nh_.param<double>("/local_excavation/heading_weight", headingWeight_, 0.05) &&
+      nh_.param<double>("/local_excavation/dump_height", dumpAtHeight_, 0.9) &&
+      nh_.param<double>("/local_excavation/volume_dirt_threshold", volumeDirtThreshold_, 0.1) &&
+      nh_.param<double>("/local_excavation/height_dirt_threshold", heightDirtThreshold_, 0.5) &&
+      nh_.param<double>("/local_excavation/volume_threshold", volumeThreshold_, 0.5) &&
+      nh_.param<double>("/local_excavation/height_threshold", heightThreshold_, 0.5) &&
+      nh_.param<double>("/local_excavation/inactive_area_ratio", inactiveAreaRatio_, .5) &&
+      nh_.param<double>("/local_excavation/dumping_distance_weight", dumpingZoneDistanceWeight_, .5) &&
+      nh_.param<double>("/local_excavation/dig_dump_distance_weight", digDumpDistanceWeight_, 1.) &&
+      nh_.param<double>("/local_excavation/x_bias_weight", xBiasWeight_, 1.) &&
+      nh_.param<double>("/local_excavation/y_bias_weight", yBiasWeight_, 1.) &&
+      nh_.param<double>("/local_excavation/excavation_area_ratio", excavationAreaRatio_, .1) &&
+      nh_.param<double>("/local_excavation/x_dump_weight", xDumpWeight_, -1.) &&
+      nh_.param<double>("/local_excavation/y_dump_weight", yDumpWeight_, 1.) &&
+      nh_.param<double>("/local_excavation/dump_cells_weight", dumpCellsWeight_, 0.1) &&
+      nh_.param<double>("/local_excavation/height_traversable_threshold", heightTraversableThreshold_, 0.5) &&
+      nh_.param<double>("/local_excavation/bonus_volume", shovelVolumeBonus_, 0.05) &&
+      nh_.param<double>("/local_excavation/missing_cells_threshold", missingCellsThreshold_, 0.04) &&
+      nh_.param<double>("/local_excavation/height_dig_area_threshold", heightDigAreaThreshold_, 0.05) &&
+      nh_.param<double>("/local_excavation/volume_dirt_weight", volumeDirtWeight_, -0.5) &&
+      nh_.param<double>("/local_excavation/height_dump_threshold", heightDumpThreshold_, 1.1) &&
+      nh_.param<double>("/local_excavation/radial_offset", radialOffset_, 0.3) &&
+      nh_.param<double>("/local_excavation/vertical_offset", verticalOffset_, 0.3) &&
+      nh_.param<double>("/local_excavation/max_dig_depth", maxDigDepth_, 0.3);
+    nh_.param<std::string>("/local_excavation/save_map_path", saveMapPath_, ros::package::getPath("local_excavation") + "/maps/latest.bag");
   if (!loaded) {
     ROS_ERROR("[LocalPlanner]: Could not load parameters for local planner");
     return false;
@@ -115,6 +117,7 @@ bool LocalPlanner::loadParameters() {
 
 bool LocalPlanner::initialize(std::string designMapBag) {
   excavationMappingPtr_->initialize(designMapBag);
+  ROS_INFO_STREAM("[LocalPlanner] loaded map into excavation mapping");
   //  excavationMappingPtr_->gridMap_.add("planning_zones", 0);
   //  excavationMappingPtr_->gridMap_.add("cost", 0);
   // start a new thread to create the planning zones and join it to the main thread
@@ -124,37 +127,49 @@ bool LocalPlanner::initialize(std::string designMapBag) {
   planningMap_.setGeometry(excavationMappingPtr_->gridMap_.getLength(), excavationMappingPtr_->gridMap_.getResolution(),
                            excavationMappingPtr_->gridMap_.getPosition());
   planningMap_.setTimestamp(excavationMappingPtr_->gridMap_.getTimestamp());
-  planningMap_.add("elevation");
-  planningMap_.add("desired_elevation", 0);
-  planningMap_.add("planning_elevation", 0);
-  planningMap_.add("original_elevation", 0);
-  planningMap_.add("excavation_mask", -1);
-  planningMap_.add("dumping_distance", 0);
-  planningMap_.add("planning_zones", 0);
-  // this is updated as we go.
-  planningMap_.add("dug_area", 0);
-  planningMap_.add("working_area", 0);
+  // copy over the existing layers
+  planningMap_ = excavationMappingPtr_->gridMap_;
+  // add the following layers if they don't exit: "planning elevation", "dumping_distance", "planning_zones", "dug_area", "working_area"
+  if (!planningMap_.exists("planning_zones")) {
+    planningMap_.add("planning_zones", 0);
+  }
+  if (!planningMap_.exists("dumping_distance")) {
+    planningMap_.add("dumping_distance", 0);
+  }
+  if (!planningMap_.exists("planning_elevation")) {
+    planningMap_.add("planning_elevation");
+    planningMap_["planning_elevation"] = excavationMappingPtr_->gridMap_["elevation"];
+  }
+  if (!planningMap_.exists("dug_area")) {
+    planningMap_.add("dug_area", 0);
+  }
+  if (!planningMap_.exists("working_area")) {
+    planningMap_.add("working_area", 0);
+  }
+  if (!planningMap_.exists("planning_zones")) {
+    planningMap_.add("planning_zones", 0);
+  }
   //  planningMap_.add("working_area", 0);
   // if occupancy layer is available initialize the working area equal to it
   // the working area layer is used by the path planner to determine the area that is free to move into
-  if (excavationMappingPtr_->gridMap_.exists("occupancy")) {
-    ROS_INFO_STREAM("[LocalPlanner]: Initializing working area from occupancy layer");
-    planningMap_["working_area"] = excavationMappingPtr_->gridMap_["occupancy"];
-  }
-  if (excavationMappingPtr_->gridMap_.exists("excavation_mask")) {
-    planningMap_["excavation_mask"] = excavationMappingPtr_->gridMap_["excavation_mask"];
-  }
+  //  if (excavationMappingPtr_->gridMap_.exists("occupancy")) {
+  //    ROS_INFO_STREAM("[LocalPlanner]: Initializing working area from occupancy layer");
+  //    planningMap_["working_area"] = excavationMappingPtr_->gridMap_["occupancy"];
+  //  }
+  //  if (excavationMappingPtr_->gridMap_.exists("excavation_mask")) {
+  //    planningMap_["excavation_mask"] = excavationMappingPtr_->gridMap_["excavation_mask"];
+  //  }
   // mostly for debugging
   planningMap_.add("active_dig_zones", 0);
   planningMap_.add("active_dump_zones", 0);
   planningMap_.add("cost", 0);
-  planningMap_["elevation"] = excavationMappingPtr_->gridMap_["elevation"];
-  planningMap_["original_elevation"] = excavationMappingPtr_->gridMap_["original_elevation"];
-  planningMap_["desired_elevation"] = excavationMappingPtr_->gridMap_["desired_elevation"];
-  planningMap_["planning_elevation"] = excavationMappingPtr_->gridMap_["elevation"];
+  //  planningMap_["elevation"] = excavationMappingPtr_->gridMap_["elevation"];
+  //  planningMap_["original_elevation"] = excavationMappingPtr_->gridMap_["original_elevation"];
+  //  planningMap_["desired_elevation"] = excavationMappingPtr_->gridMap_["desired_elevation"];
+  //  planningMap_["planning_elevation"] = excavationMappingPtr_->gridMap_["elevation"];
 
   lock.unlock();
-
+  ROS_INFO_STREAM("[LocalPlanner]: Initialized planning map");
   //  this->createPlanningZones();
   //  this->updateDugZones();
   //  this->choosePlanningZones();
@@ -393,9 +408,18 @@ Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd, std::string 
   Eigen::Vector3d w_P_dba = (-w_P_wd + w_P_wba).normalized();
   //  this->publishHeading(w_P_wd, w_P_dba, "map");
   //  Eigen::Vector3d C_ws = this->findShovelDesiredOrientation(w_P_wd, w_P_dba);
+  double slopeAngle = 0;
+  double desiredLocalAttitudeAngle = M_PI * 1. / 6;
+  double attitudeAngle = desiredLocalAttitudeAngle + slopeAngle;
+  Eigen::Quaterniond R_ws_d = this->get_R_sw(0, -attitudeAngle, heading);
+  // move the initial point along the radial direction of the shovel
+  // this allows the shovel to keep the same orientation for a bit even outside of the soil
+  // this is convenient in practice because the height map might be imprecise and we might encounter soil before we expect it.
+  Eigen::Vector3d w_P_wd_off = w_P_wd - verticalOffset_ * tan(attitudeAngle) * w_P_dba;
+  w_P_wd_off(2) = w_P_wd(2) + verticalOffset_;
 
   // this takes care of the fact that we have a penetration phase
-  Eigen::Vector3d w_P_wd_off = w_P_wd - radialOffset_ * w_P_dba;
+  //  Eigen::Vector3d w_P_wd_off = w_P_wd - radialOffset_ * w_P_dba;
   //  ROS_INFO_STREAM("[LocalPlanner]: w_P_dba: " << w_P_dba.transpose());
   //  ROS_INFO_STREAM("[LocalPlanner]: w_P_wd_off: " << w_P_wd_off.transpose());
   //  ROS_INFO_STREAM("[LocalPlanner]: radialOffset_: " << radialOffset_);
@@ -405,10 +429,6 @@ Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd, std::string 
   w_P_dd1(2) = std::max(desiredElevation - elevation, -maxDigDepth_);  // fix maximal depth
   // these angles are all wrt the digging direction
   // for flat ground the desired attitude angle corresponds does not
-  double slopeAngle = 0;
-  double desiredLocalAttitudeAngle = 45 * M_PI / 180;
-  double attitudeAngle = desiredLocalAttitudeAngle + slopeAngle;
-  Eigen::Quaterniond R_ws_d = this->get_R_sw(0, -attitudeAngle, heading);
 
   // the projection in 2d of the penetration vector is parallel to the digging vector and has length
   // angle of attack, if 0 shovel moves along the local z axis of the end effector
@@ -417,12 +437,13 @@ Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd, std::string 
   double heightChange = std::min(elevation - desiredElevation, maxDigDepth_);
   // this is probably the problme
   double horizontalDisplacement = heightChange / tan(diggingPathAngle);
-  w_P_dd1.head(2) = w_P_dba * horizontalDisplacement;
+  //  w_P_dd1.head(2) = w_P_dba * horizontalDisplacement;
+  w_P_dd1.head(2) = -w_P_dd1(2) * tan(attitudeAngle) * w_P_dba;
   //  ROS_INFO_STREAM("[LocalPlanner]: w_P_dd1: " << w_P_dd1.transpose());
   //  ROS_INFO_STREAM("[LocalPlanner]: digging vector in world frame " << w_P_dd1.transpose());
   //  ROS_INFO_STREAM("[LocalPlanner]: horizontal displacement " << horizontalDisplacement);
 
-  Eigen::Vector3d w_P_wd1 = w_P_wd_off + w_P_dd1;
+  Eigen::Vector3d w_P_wd1 = w_P_wd + w_P_dd1;
   Eigen::Quaterniond R_ws_d1 = this->get_R_sw(0, -attitudeAngle, heading);
 
   //  this->publishVector(w_P_wd, w_P_dd1, "map");
@@ -722,6 +743,7 @@ double LocalPlanner::volumeObjective(Trajectory trajectory) {
 }
 
 void LocalPlanner::optimizeTrajectory() {
+  this->updatePlanningMap();
   // iterate over all the points belonging to the workspace polygon and compute a feasable trajectory starting from each point
   // and find the point that maximizes the objective function
   // check that digZoneId_ is between 0 and and 2
@@ -766,6 +788,10 @@ void LocalPlanner::optimizeTrajectory() {
   // print expected volume for the best trajectory
   ROS_INFO_STREAM("[LocalPlanner]: Expected volume " << bestTrajectory.workspaceVolume);
   optimalDigTrajectory_ = bestTrajectory;
+}
+
+double LocalPlanner::getVolume() {
+  return optimalDigTrajectory_.workspaceVolume;
 }
 
 bool LocalPlanner::isDigZoneComplete(int zoneId) {
@@ -841,6 +867,7 @@ bool LocalPlanner::isDigZoneComplete(int zoneId) {
 
 bool LocalPlanner::isLocalWorkspaceComplete() {
   // if both dig zone is -1 then the local workspace is complete
+  this->updatePlanningMap();
   if (createNewZones_) {
     // empty the planning zones vector
     planningZones_.clear();
@@ -850,7 +877,6 @@ bool LocalPlanner::isLocalWorkspaceComplete() {
   this->updateWorkingArea();
   this->choosePlanningZones();
   this->updateDugZones();
-  this->updatePlanningMap();
   //  ROS_INFO_STREAM("[LocalPlanner]: Local workspace is not complete!");
   return digZoneId_ == -1;
 }
@@ -1642,6 +1668,7 @@ Eigen::Vector3d LocalPlanner::findShovelDesiredOrientation(Eigen::Vector3d& worl
 // }
 
 void LocalPlanner::findDumpPoint() {
+  this->updatePlanningMap();
   ROS_INFO("[LocalPlanner]: findDumpPoint in zone %d", dumpZoneId_);
   geometry_msgs::TransformStamped T_mba;
   // get transform from base to cabin frame
@@ -2025,7 +2052,7 @@ void LocalPlanner::publishWorkingArea() {
   workingAreaPublisher_.publish(message);
 }
 
-void LocalPlanner::saveCurrentPlanningMap(){
+void LocalPlanner::saveCurrentPlanningMap() {
   // save the current planning map to a bag file
   grid_map::GridMapRosConverter::saveToBag(planningMap_, saveMapPath_, "grid_map");
 }
