@@ -15,8 +15,8 @@ class Trajectory{
   std::vector<Eigen::Quaterniond> orientations;
   double distanceFromBase = 0;
   double relativeHeading = 0;
-  double scoopedVolume = -2;
-  double workspaceVolume = -2;
+  double scoopedVolume = -10;
+  double workspaceVolume = -10;
 };
 
 class LocalPlanner {
@@ -58,6 +58,9 @@ class LocalPlanner {
   loco_m545::RotationQuaternion findOrientationWorldToShovel(double shovelRollAngle, double shovelPitchAngle,
                                                                            double shovelYawAngle);
   Trajectory getDigTrajectoryWorldFrame(Eigen::Vector3d& w_P_wd);
+  void getLayerHeightAlongBoom(std::string layer, std::vector<double>& layerValues, std::vector<double>& distanceFromBase);
+  double getShovelHeightFromLayer(std::string layer);
+
   // orientation shovel wrt world frame
   Eigen::Quaterniond C_sw(double shovelRollAngle, double shovelPitchAngle, double shovelYawAngle);
   Eigen::Quaterniond get_R_sw(double shovelRollAngle, double shovelPitchAngle,
