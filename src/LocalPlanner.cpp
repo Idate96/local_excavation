@@ -872,9 +872,7 @@ double LocalPlanner::getShovelHeightFromLayer(std::string layer) {
   // get the elevation at the position
   double elevation = excavationMappingPtr_->getValueAtLayer(w_P_sw.head(2), layer);
   // if the elevation is not nan add it to the vector
-  if (!std::isnan(elevation)) {
-    return w_P_sw(2) - elevation;
-  }
+  return w_P_sw(2) - elevation;
 }
 
 double LocalPlanner::getVolume() {
@@ -1232,6 +1230,7 @@ void LocalPlanner::sdfDumpingAreas() {
   }
   Eigen::Quaterniond targetOrientation(T_bw.transform.rotation.w, T_bw.transform.rotation.x, T_bw.transform.rotation.y,
                                        T_bw.transform.rotation.z);
+  Eigen::Vector3d targetPosition(T_bw.transform.translation.x, T_bw.transform.translation.y, T_bw.transform.translation.z);
   double yawAngle = targetOrientation.toRotationMatrix().eulerAngles(0, 1, 2).z();
   // copy the distance back to the planning map
   for (grid_map::GridMapIterator iterator(planningMap_); !iterator.isPastEnd(); ++iterator) {
@@ -1249,11 +1248,13 @@ void LocalPlanner::sdfDumpingAreas() {
     } else {
       // if yaw angle is negative then distance is linear function starting from 10 at y=10 and going to 0 at y=-10
       // if yaw angle is positive then distance is linear function starting from 10 at y=-10 and going to 0 at y=10
-      if (yawAngle < 0) {
-        distance = (5 - position.y() / 2);
-      } else {
-        distance = (-5 + position.y() / 2);
-      }
+//      if (yawAngle < 0) {
+//        distance = (5 - position.y() / 2);
+//      } else {
+//        distance = (-5 + position.y() / 2);
+//      }
+       // compute the distance to the base
+       distance = (position - targetPosition.head(2)).norm();
       //    distance = 0.05 * (10 - abs(position.x())) * (10 - abs(position.y()));
     }
     planningMap_.at("dumping_distance", index) = distance;
@@ -1304,11 +1305,11 @@ double LocalPlanner::getDumpingScore(int zoneId) {
   double scoreX = xBiasWeight_ * (b_zoneCenter_bc.x() - w_P_wba.x());
   double scoreLocalDistance = digDumpDistanceWeight_ * this->distanceZones(digZoneId_, zoneId);
   score += scoreX + scoreLocalDistance + scoreGlocalDistance;
-  //  ROS_INFO_STREAM("[LocalPlanner]: dumping score for zone " << zoneId << " is " << score);
-  // print detailed breakdown of the score contribution
-  //  ROS_INFO_STREAM("[LocalPlanner]: total score " << score << ", dumping score breakdown for zone " << zoneId << " is " <<
-  //                  scoreX << " x bias, " << scoreLocalDistance << " local distance, " << scoreGlocalDistance << " global distance");
-  //  ROS_INFO_STREAM("[LocalPlanner]: --------------------------------------------------------------------------");
+  ROS_INFO_STREAM("[LocalPlanner]: dumping score for zone " << zoneId << " is " << score);
+  //  print detailed breakdown of the score contribution
+  ROS_INFO_STREAM("[LocalPlanner]: total score " << score << ", dumping score breakdown for zone " << zoneId << " is " <<
+                  scoreX << " x bias, " << scoreLocalDistance << " local distance, " << scoreGlocalDistance << " global distance");
+  ROS_INFO_STREAM("[LocalPlanner]: --------------------------------------------------------------------------");
   return score;
 }
 
