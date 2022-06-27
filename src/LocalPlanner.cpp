@@ -1033,9 +1033,10 @@ void LocalPlanner::choosePlanningZones() {
   for (int i = 1; i < 5; i++) {
     if (i != digZoneId_) {
       bool zoneActive = this->isZoneActive(i, false);
-      //     ROS_INFO_STREAM("[LocalPlanner]: Dumping Zone " << i << " is active: " << zoneActive);
+      ROS_INFO_STREAM("[LocalPlanner]: Dumping Zone " << i << " is active: " << zoneActive);
       if (zoneActive && digZoneId_ != -1) {
         double zoneDumpingScore = this->getDumpingScore(i);
+        ROS_INFO_STREAM("[LocalPlanner]: Dumping Zone " << i << " has dumping score: " << zoneDumpingScore);
         if (zoneDumpingScore < dumpingScore) {
           dumpingScore = zoneDumpingScore;
           dumpZoneId_ = i;
@@ -1257,6 +1258,7 @@ void LocalPlanner::sdfDumpingAreas() {
       //    distance = 0.05 * (10 - abs(position.x())) * (10 - abs(position.y()));
     }
     planningMap_.at("dumping_distance", index) = distance;
+    ROS_INFO_STREAM("[LocalPlanner]: distance at " << index << ": " << distance);
   }
   // ROS_INFO_STREAM("[LocalPlanner]: SDF calculated");
 }
