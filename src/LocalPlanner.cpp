@@ -351,14 +351,14 @@ loco_m545::RotationQuaternion LocalPlanner::findOrientationWorldToShovel(double 
 Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd, std::string targetLayer) {
   // w_P_wd is the digging point
   // point below the surface
-  ROS_INFO_STREAM("Computing trajectory for " << w_P_wd.transpose());
+  //  ROS_INFO_STREAM("Computing trajectory for " << w_P_wd.transpose());
   grid_map::Position wg_P_wd(w_P_wd(0), w_P_wd(1));
   grid_map::Index wg_index;
   planningMap_.getIndex(wg_P_wd, wg_index);
   double elevation = excavationMappingPtr_->getElevation(wg_P_wd);
   double desiredElevation = planningMap_.at(targetLayer, wg_index);
-  ROS_INFO_STREAM("[LocalPlanner]: elevation: " << elevation);
-  ROS_INFO_STREAM("[LocalPlanner]: desired elevation: " << desiredElevation);
+  //  ROS_INFO_STREAM("[LocalPlanner]: elevation: " << elevation);
+  //  ROS_INFO_STREAM("[LocalPlanner]: desired elevation: " << desiredElevation);
   if (elevation - desiredElevation < heightPrecision_) {
     //    ROS_WARN("[LocalPlanner]: digging point is not below the surface");
     return Trajectory();
@@ -398,12 +398,12 @@ Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd, std::string 
   Eigen::Vector3d ba_P_bad = R_mba_qe.inverse() * w_P_bad;
 
   // relative heading
-   ROS_INFO_STREAM("[LocalPlanner]: digging point wrt base in base frame: " << ba_P_bad.transpose());
+  //   ROS_INFO_STREAM("[LocalPlanner]: digging point wrt base in base frame: " << ba_P_bad.transpose());
   double relativeHeading = atan2(ba_P_bad(1), ba_P_bad(0));
-   ROS_INFO_STREAM("Base heading in map frame: " <<  yaw_b);
-   ROS_INFO_STREAM("[LocalPlanner]: opt traj relative heading is " << relativeHeading);
+  //   ROS_INFO_STREAM("Base heading in map frame: " <<  yaw_b);
+  //   ROS_INFO_STREAM("[LocalPlanner]: opt traj relative heading is " << relativeHeading);
   double heading = -yaw_b - relativeHeading;
-   ROS_INFO_STREAM("[LocalPlanner]: opt traj heading " << heading);
+  //   ROS_INFO_STREAM("[LocalPlanner]: opt traj heading " << heading);
 
   //  ROS_INFO_STREAM("[LocalPlanner]: True boom heading " << shovelYaw);
   // transform the yaw angle into a direction vector
@@ -423,14 +423,14 @@ Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd, std::string 
 
   // this takes care of the fact that we have a penetration phase
   //  Eigen::Vector3d w_P_wd_off = w_P_wd - radialOffset_ * w_P_dba;
-   ROS_INFO_STREAM("[LocalPlanner]: w_P_dba: " << w_P_dba.transpose());
-   ROS_INFO_STREAM("[LocalPlanner]: w_P_wd_off: " << w_P_wd_off.transpose());
-   ROS_INFO_STREAM("[LocalPlanner]: radialOffset_: " << radialOffset_);
+  //   ROS_INFO_STREAM("[LocalPlanner]: w_P_dba: " << w_P_dba.transpose());
+  //   ROS_INFO_STREAM("[LocalPlanner]: w_P_wd_off: " << w_P_wd_off.transpose());
+  //   ROS_INFO_STREAM("[LocalPlanner]: radialOffset_: " << radialOffset_);
   // penetration vector
   Eigen::Vector3d w_P_dd1 = Eigen::Vector3d(0, 0, 0);
   // vertical displacement is the difference between the desired elevation and the elevation of the digging point
   w_P_dd1(2) = std::max(desiredElevation - elevation, -maxDigDepth_);  // fix maximal depth
-  ROS_INFO_STREAM("[LocalPlanner]: w_P_dd1 depth: " << w_P_dd1(2));
+                                                                       //  ROS_INFO_STREAM("[LocalPlanner]: w_P_dd1 depth: " << w_P_dd1(2));
   // these angles are all wrt the digging direction
   // for flat ground the desired attitude angle corresponds does not
 
@@ -440,13 +440,13 @@ Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd, std::string 
   double diggingPathAngle = desiredLocalAttitudeAngle - alpha;
   double heightChange = std::min(elevation - desiredElevation, maxDigDepth_);
   // this is probably the problem
-  ROS_INFO_STREAM("[LocalPlanner]: heightChange: " << heightChange);
+  //  ROS_INFO_STREAM("[LocalPlanner]: heightChange: " << heightChange);
   double horizontalDisplacement = heightChange / tan(diggingPathAngle);
   //  w_P_dd1.head(2) = w_P_dba * horizontalDisplacement;
   w_P_dd1.head(2) = -w_P_dd1(2) * tan(attitudeAngle) * w_P_dba;
-   ROS_INFO_STREAM("[LocalPlanner]: w_P_dd1: " << w_P_dd1.transpose());
-   ROS_INFO_STREAM("[LocalPlanner]: digging vector in world frame " << w_P_dd1.transpose());
-   ROS_INFO_STREAM("[LocalPlanner]: horizontal displacement " << horizontalDisplacement);
+  //   ROS_INFO_STREAM("[LocalPlanner]: w_P_dd1: " << w_P_dd1.transpose());
+  //   ROS_INFO_STREAM("[LocalPlanner]: digging vector in world frame " << w_P_dd1.transpose());
+  //   ROS_INFO_STREAM("[LocalPlanner]: horizontal displacement " << horizontalDisplacement);
 
   Eigen::Vector3d w_P_wd1 = w_P_wd + w_P_dd1;
   Eigen::Quaterniond R_ws_d1 = this->get_R_sw(0, -attitudeAngle, heading);
@@ -554,9 +554,9 @@ Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd, std::string 
       break;
     }
     // check if the trajectory is valid
-    ROS_INFO_STREAM("[LocalPlanner]: line volume " << lineVolume);
-    ROS_INFO_STREAM("[LocalPlanner]: volume " << volume);
-    ROS_INFO_STREAM("[LocalPlanner]: workspace volume " << workspaceVolume);
+    //    ROS_INFO_STREAM("[LocalPlanner]: line volume " << lineVolume);
+    //    ROS_INFO_STREAM("[LocalPlanner]: volume " << volume);
+    //    ROS_INFO_STREAM("[LocalPlanner]: workspace volume " << workspaceVolume);
     if (volume > maxVolume_) {
       valid = false;
       break;
@@ -570,7 +570,7 @@ Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd, std::string 
     }
     w_P_wd_current = w_P_next;
     numSteps++;
-    ROS_INFO_STREAM("[LocalPlanner]: step " << numSteps << " volume " << volume);
+    //    ROS_INFO_STREAM("[LocalPlanner]: step " << numSteps << " volume " << volume);
   }
   // interpolate the orientation of the shovel
   double stepSizePitchOrientation = (targetAttitude - attitudeAngle) / (digPoints.size() - 1);
@@ -666,7 +666,7 @@ Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd, std::string 
   trajectory.workspaceVolume = workspaceVolume;
   trajectory.distanceFromBase = (w_P_wd_off - w_P_wba).norm();
   trajectory.relativeHeading = abs(relativeHeading);
-  ROS_INFO_STREAM("[LocalPlanner]: completed trajectory starting at" << w_P_wd_off.transpose() << " with heading " << heading);
+  //  ROS_INFO_STREAM("[LocalPlanner]: completed trajectory starting at" << w_P_wd_off.transpose() << " with heading " << heading);
 
   // set the trajectory
   //  this->publishDesiredShovelPose(w_P_wd, R_ws_d1);
@@ -755,23 +755,23 @@ double LocalPlanner::volumeObjective(Trajectory trajectory) {
   double distanceWeight = distanceWeight_ * trajectory.distanceFromBase;
   double headingWeight = headingWeight_ * trajectory.relativeHeading;
   double objective = workspaceCost + distanceWeight + headingWeight;
-  ROS_INFO_STREAM("[LocalPlanner]: workspace cost " << workspaceCost);
-  ROS_INFO_STREAM("[LocalPlanner]: distance cost " << distanceWeight);
-  ROS_INFO_STREAM("[LocalPlanner]: heading cost " << headingWeight);
+  //  ROS_INFO_STREAM("[LocalPlanner]: workspace cost " << workspaceCost);
+  //  ROS_INFO_STREAM("[LocalPlanner]: distance cost " << distanceWeight);
+  //  ROS_INFO_STREAM("[LocalPlanner]: heading cost " << headingWeight);
   return objective;
 }
 
 void LocalPlanner::optimizeTrajectory() {
   ROS_INFO_STREAM("[LocalPlanner]: Optimizing trajectory");
   this->updatePlanningMap();
-  ROS_INFO_STREAM("[LocalPlanner]: Planning map updated");
+  //  ROS_INFO_STREAM("[LocalPlanner]: Planning map updated");
   // iterate over all the points belonging to the workspace polygon and compute a feasable trajectory starting from each point
   // and find the point that maximizes the objective function
   // check that digZoneId_ is between 0 and and 2
   // print available layers of planningMap_
-  for (auto layer : planningMap_.getLayers()) {
-    ROS_INFO_STREAM("[LocalPlanner]: Planning map layer: " << layer);
-  }
+  //  for (auto layer : planningMap_.getLayers()) {
+  //    ROS_INFO_STREAM("[LocalPlanner]: Planning map layer: " << layer);
+  //  }
   std::string targetLayer;
   if (digZoneId_ < 0 || digZoneId_ > 2) {
     ROS_ERROR("[LocalPlanner]: cannot compute optimal trajectory, digZoneId_ is not between 0 and 2");
@@ -790,17 +790,17 @@ void LocalPlanner::optimizeTrajectory() {
     // get the position of the point
     grid_map::Position diggingPoint;
     planningMap_.getPosition(*iterator, diggingPoint);
-    ROS_INFO_STREAM("[LocalPlanner]: Digging point: " << diggingPoint.x() << " " << diggingPoint.y());
+    //    ROS_INFO_STREAM("[LocalPlanner]: Digging point: " << diggingPoint.x() << " " << diggingPoint.y());
     // get the elevation of the point
     double elevation = excavationMappingPtr_->getElevation(diggingPoint);
-    ROS_INFO_STREAM("[LocalPlanner]: Digging point elevation: " << elevation);
+    //    ROS_INFO_STREAM("[LocalPlanner]: Digging point elevation: " << elevation);
     // if the elevation is not nan compute the trajectory
     if (!std::isnan(elevation)) {
       // create the point in 3d
       Eigen::Vector3d w_P_wd(diggingPoint.x(), diggingPoint.y(), elevation);
       Trajectory trajectory = this->computeTrajectory(w_P_wd, targetLayer);
       double objective = this->volumeObjective(trajectory);
-      ROS_INFO_STREAM("[LocalPlanner]: Objective: " << objective);
+      //      ROS_INFO_STREAM("[LocalPlanner]: Objective: " << objective);
       //    ROS_INFO_STREAM("[LocalPlanner]: Objective " << objective);
       if (objective > maxObjective) {
         bestTrajectory = trajectory;
@@ -1250,19 +1250,25 @@ void LocalPlanner::sdfDumpingAreas() {
     //   // get the elevation of the point
     //   double distance = sdf.getDistanceAt(position3d);
     double distance;
+    // this means you can dump there so it gets a low score/distance
     if (planningMap_.at("excavation_mask", index) == 1) {
       distance = -1;
     } else {
+      // this commented out section is an analitical sdf for the case of a square
       // if yaw angle is negative then distance is linear function starting from 10 at y=10 and going to 0 at y=-10
       // if yaw angle is positive then distance is linear function starting from 10 at y=-10 and going to 0 at y=10
-//      if (yawAngle < 0) {
-//        distance = (5 - position.y() / 2);
-//      } else {
-//        distance = (-5 + position.y() / 2);
-//      }
-       // compute the distance to the base
-       distance = (position - targetPosition.head(2)).norm();
+      //      if (yawAngle < 0) {
+      //        distance = (5 - position.y() / 2);
+      //      } else {
+      //        distance = (-5 + position.y() / 2);
+      //      }
       //    distance = 0.05 * (10 - abs(position.x())) * (10 - abs(position.y()));
+
+      // compute the signed distance field for the current zone wrt the boundaries of the zone which have excavation_mask = 1
+      // grid_map sdf
+      // grid_map::SignedDistanceField sdf(planningMap_, "excavation_mask");
+
+      distance = planningMap_.at("excavation_sdf", index);
     }
     planningMap_.at("dumping_distance", index) = distance;
     // ROS_INFO_STREAM("[LocalPlanner]: distance at " << index << ": " << distance);
@@ -1311,12 +1317,14 @@ double LocalPlanner::getDumpingScore(int zoneId) {
   //  ROS_INFO_STREAM("[LocalPlanner]: zone " << zoneId << " center in base frame: " << b_zoneCenter_bc_2d << " and in map frame: " <<
   //  w_zoneCenter_wc);
   double scoreX = xBiasWeight_ * (b_zoneCenter_bc.x() - w_P_wba.x());
+  scoreX = 0;  // disable x bias
   double scoreLocalDistance = digDumpDistanceWeight_ * this->distanceZones(digZoneId_, zoneId);
   score += scoreX + scoreLocalDistance + scoreGlocalDistance;
   ROS_INFO_STREAM("[LocalPlanner]: dumping score for zone " << zoneId << " is " << score);
   //  print detailed breakdown of the score contribution
-  ROS_INFO_STREAM("[LocalPlanner]: total score " << score << ", dumping score breakdown for zone " << zoneId << " is " <<
-                  scoreX << " x bias, " << scoreLocalDistance << " local distance, " << scoreGlocalDistance << " global distance");
+  ROS_INFO_STREAM("[LocalPlanner]: total score " << score << ", dumping score breakdown for zone " << zoneId << " is " << scoreX
+                                                 << " x bias, " << scoreLocalDistance << " local distance, " << scoreGlocalDistance
+                                                 << " global distance");
   ROS_INFO_STREAM("[LocalPlanner]: --------------------------------------------------------------------------");
   return score;
 }
@@ -1411,9 +1419,23 @@ void LocalPlanner::createPlanningZones() {
             Eigen::Quaterniond(T_bw.transform.rotation.w, T_bw.transform.rotation.x, T_bw.transform.rotation.y, T_bw.transform.rotation.z);
         t_bw = Eigen::Vector3d(T_bw.transform.translation.x, T_bw.transform.translation.y, T_bw.transform.translation.z);
       }
+
+      // labmda function that checks weather vertex coordiinates are within bounds [-100, 100] and return true if they are
+      auto isWithinBounds = [&](Eigen::Vector2d v) {
+        if (v.x() > -100 && v.x() < 100 && v.y() > -100 && v.y() < 100) {
+          return true;
+        } else {
+          return false;
+        }
+      };
+
       // get yaw angle
       // transform the vertices
       for (Eigen::Vector2d vertex : b_PosDigVertex_bd) {
+        if (!isWithinBounds(vertex)) {
+          ROS_WARN("[LocalPlanner]: vertex of dig zone is not within bounds");
+          continue;
+        }
         Eigen::Vector3d vertex_eigen(vertex(0), vertex(1), 0);
         Eigen::Vector3d vertex_w_eigen;
         vertex_w_eigen = targetOrientation.toRotationMatrix() * vertex_eigen + t_bw;
@@ -1425,6 +1447,10 @@ void LocalPlanner::createPlanningZones() {
 
       // get the center
       for (Eigen::Vector2d vertex : b_PosDumpFrontLeft_bdu) {
+        if (!isWithinBounds(vertex)) {
+          ROS_WARN("[LocalPlanner]: vertex of dumping front left zone is not within bounds");
+          continue;
+        }
         Eigen::Vector3d vertex_eigen(vertex(0), vertex(1), 0);
         Eigen::Vector3d vertex_w_eigen;
         vertex_w_eigen = targetOrientation.toRotationMatrix() * vertex_eigen + t_bw;
@@ -1436,6 +1462,10 @@ void LocalPlanner::createPlanningZones() {
 
       // get the center
       for (Eigen::Vector2d vertex : b_PosDumpFrontRight_bdu) {
+        if (!isWithinBounds(vertex)) {
+          ROS_WARN("[LocalPlanner]: vertex of dumping front right zone is not within bounds");
+          continue;
+        }
         Eigen::Vector3d vertex_eigen(vertex(0), vertex(1), 0);
         Eigen::Vector3d vertex_w_eigen;
         vertex_w_eigen = targetOrientation.toRotationMatrix() * vertex_eigen + t_bw;
@@ -1447,16 +1477,14 @@ void LocalPlanner::createPlanningZones() {
 
       // get the center
       for (Eigen::Vector2d vertex : b_PosDumpBackLeft_bdu) {
-        if (vertex(0) > 50) {
-          //          ROS_INFO_STREAM("[LocalPlanner]: skipping vertex " << vertex.transpose());
+        if (!isWithinBounds(vertex)) {
+          ROS_WARN("[LocalPlanner]: vertex of dumping back left zone is not within bounds");
+          continue;
         }
         Eigen::Vector3d vertex_eigen(vertex(0), vertex(1), 0);
         Eigen::Vector3d vertex_w_eigen;
         vertex_w_eigen = targetOrientation.toRotationMatrix() * vertex_eigen + t_bw;
         Eigen::Vector2d vertex_w(vertex_w_eigen(0), vertex_w_eigen(1));
-        if (vertex_w(0) > 50) {
-          //          ROS_INFO_STREAM("[LocalPlanner]: skipping world frame  vertex " << vertex_w.transpose());
-        }
         backLeftZoneCenter += vertex_w;
         w_PosDumpBackLeft_wdu.push_back(vertex_w);
       }
@@ -1464,6 +1492,10 @@ void LocalPlanner::createPlanningZones() {
 
       // get the center
       for (Eigen::Vector2d vertex : b_PosDumpBackRight_bdu) {
+        if (!isWithinBounds(vertex)) {
+          ROS_WARN("[LocalPlanner]: vertex of dumping back right zone is not within bounds");
+          continue;
+        }
         Eigen::Vector3d vertex_eigen(vertex(0), vertex(1), 0);
         Eigen::Vector3d vertex_w_eigen;
         vertex_w_eigen = targetOrientation.toRotationMatrix() * vertex_eigen + t_bw;
@@ -1508,9 +1540,9 @@ void LocalPlanner::createPlanningZones() {
   zoneCenters_.push_back(backRightZoneCenter);
   ROS_INFO_STREAM("[LocalPlanner]: Planning zones created");
   // print the zone centers
-   for (int i = 0; i < zoneCenters_.size(); i++) {
-     ROS_INFO_STREAM("[LocalPlanner]: Zone " << i << " center: " << zoneCenters_[i]);
-   }
+  for (int i = 0; i < zoneCenters_.size(); i++) {
+    ROS_INFO_STREAM("[LocalPlanner]: Zone " << i << " center: " << zoneCenters_[i]);
+  }
 
   std::vector<double> zoneValues = {-1, .2, .2, 1, 1};
   this->addPlanningZonesToMap(zoneValues);
@@ -1527,6 +1559,10 @@ void LocalPlanner::setWorkspacePose(Eigen::Vector3d& workspacePos, Eigen::Quater
 double LocalPlanner::distanceZones(int zoneId1, int zoneId2) {
   //  ROS_INFO_STREAM("[LocalPlanner]: distance between zone " << zoneId1 << " and zone " << zoneId2);
   // we define the distance between two zones as the distance between the centers of the zones
+  // print zone centers
+  for (int i = 0; i < zoneCenters_.size(); i++) {
+    ROS_INFO_STREAM("[LocalPlanner]: Zone " << i << " center: " << zoneCenters_[i]);
+  }
   return (zoneCenters_.at(zoneId1) - zoneCenters_.at(zoneId2)).norm();
 }
 

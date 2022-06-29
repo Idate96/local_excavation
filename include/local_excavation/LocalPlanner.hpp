@@ -160,6 +160,11 @@ private:
   Trajectory optimalDigTrajectory_;
   Trajectory dumpTrajectory_;
 
+  // if we need more than one "coverage lane" to covers the global workspace
+  // then this vector is perpendicular to the two lanes and point in the direction of the second lane
+  // this is used to bias the local planner to dump soil against the direction of motion
+  Eigen::Vector2d workingDirection_ = Eigen::Vector2d::Zero();
+
   // ros
   ros::NodeHandle nh_;
   ros::Publisher planningMapPublisher_;
