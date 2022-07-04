@@ -841,14 +841,14 @@ void LocalPlanner::getLayerHeightAlongBoom(std::string layer, std::vector<double
   // get the position of the ENDEFFECTOR_CONTACT (symbol s) in map frame (symbol w) using tf
   geometry_msgs::TransformStamped T_bm;
   try {
-    T_bm = tfBuffer_->lookupTransform("BOOM", "map", ros::Time(0));
+    T_bm = tfBuffer_->lookupTransform("map", "BOOM", ros::Time(0));
   } catch (tf2::TransformException& ex) {
     ROS_WARN("%s", ex.what());
     ros::Duration(1.0).sleep();
   }
   geometry_msgs::TransformStamped T_sm;
   try {
-    T_sm = tfBuffer_->lookupTransform("ENDEFFECTOR_CONTACT", "map", ros::Time(0));
+    T_sm = tfBuffer_->lookupTransform("map", "ENDEFFECTOR_CONTACT", ros::Time(0));
   } catch (tf2::TransformException& ex) {
     ROS_WARN("%s", ex.what());
     ros::Duration(1.0).sleep();
@@ -870,13 +870,13 @@ void LocalPlanner::getLayerHeightAlongBoom(std::string layer, std::vector<double
   std::vector<Eigen::Vector3d> w_P_pts;
   for (int i = 0; i < layerValues.size(); i++) {
     // position to query
-    Eigen::Vector2d nextPosition = w_P_bw_projected + step * w_P_sb_projected;
+    Eigen::Vector2d nextPosition = w_P_bw_projected + i * step * w_P_sb_projected;
     // get the elevation at the position
     double elevation = excavationMappingPtr_->getValueAtLayer(nextPosition, layer);
     // if the elevation is not nan add it to the vector
     if (!std::isnan(elevation)) {
-      layerValues.push_back(elevation);
-      distanceBoom.push_back(i * step);
+      layerValues.at(i) = elevation;
+      distanceBoom.at(i) = i * step;
       w_P_pts.push_back(Eigen::Vector3d(nextPosition(0), nextPosition(1), elevation));
     }
   }
@@ -2524,9 +2524,9 @@ void LocalPlanner::publishMarkersTrajectory(std::vector<grid_map::Position3> pos
     marker.pose.orientation.y = 0.0;
     marker.pose.orientation.z = 0.0;
     marker.pose.orientation.w = 1.0;
-    marker.scale.x = 0.02;
-    marker.scale.y = 0.02;
-    marker.scale.z = 0.02;
+    marker.scale.x = 0.1;
+    marker.scale.y = 0.1;
+    marker.scale.z = 0.1;
     marker.color.a = 1.0;
     marker.color.r = 0.0;
     marker.color.g = 0.0;
