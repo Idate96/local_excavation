@@ -131,6 +131,10 @@ class LocalPlanner {
   enum DiggingFrame {BASE, MAP};
   DiggingFrame diggingFrame_ = MAP;
 
+  // set dig and dump zone
+  void setDigZone(int zoneId);
+  void setDumpZone(int zoneId);
+
 private:
   // sub-map representing the reachable workspace of the robot
   grid_map::GridMap localMap_ = grid_map::GridMap();

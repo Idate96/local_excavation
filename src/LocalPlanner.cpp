@@ -204,6 +204,25 @@ void LocalPlanner::setLocalMap(grid_map::GridMap& localMap) {
   this->publishPlanningMap();
 };
 
+void LocalPlanner::setDigZone(int zoneId) {
+  // check that is between 0 and 2
+  if (zoneId < 0 || zoneId > 2) {
+    ROS_ERROR_STREAM("[LocalPlanner]: Invalid zone id: " << zoneId);
+    return;
+  }
+  digZoneId_ = zoneId;
+  //  this->publishPlanningMap();
+};
+
+void LocalPlanner::setDumpZone(int zoneId) {
+  // check that is between 1 and 4
+  if (zoneId < 1 || zoneId > 4) {
+    ROS_ERROR_STREAM("[LocalPlanner]: Invalid zone id: " << zoneId);
+    return;
+  }
+  dumpZoneId_ = zoneId;
+}
+
 bool LocalPlanner::addDataFrom(grid_map::GridMap& map, const grid_map::GridMap& other, std::vector<std::string> layers) {
   // this function allow to copy over data from one map to another even if they don't have the same reference frame
   // Check if all layers to copy exist and add missing layers.
