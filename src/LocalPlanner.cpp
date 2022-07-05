@@ -912,6 +912,8 @@ bool LocalPlanner::isDigZoneComplete(int zoneId) {
     ROS_ERROR_STREAM("[LocalPlanner]: Invalid zone id " << zoneId);
     return false;
   }
+  // print height theshold
+  ROS_INFO_STREAM("[LocalPlanner]: height threshold " << heightThreshold_);
   bool completed = false;
   // sum up all the remaining volume in the digZone and check two conditions:
   // 1. the sum is smaller than the volumeTreshold
@@ -934,6 +936,7 @@ bool LocalPlanner::isDigZoneComplete(int zoneId) {
         //      ROS_INFO_STREAM("[LocalPlanner]: desired elevation " << desiredElevation << " elevation " << elevation);
         // get soil volume remaining
         heightDifference = std::max(0.0, elevation - desiredElevation);
+        ROS_INFO_STREAM("[LocalPlanner]: height difference " << heightDifference);
         originalHeightDifference = std::max(0.0, planningMap_.at("original_elevation", index) - desiredElevation);
         //      ROS_INFO_STREAM("[LocalPlanner]: height difference " << heightDifference);
         //      ROS_INFO_STREAM("[LocalPlanner]: original height difference " << originalHeightDifference);
@@ -964,7 +967,8 @@ bool LocalPlanner::isDigZoneComplete(int zoneId) {
   //  ROS_INFO_STREAM("[LocalPlanner]: Volume ratio: " << volume / totalVolume);
   //  ROS_INFO_STREAM("[LocalPlanner]: Number of missing cells ratio: " << (double) numMissingCells / totalNumCells);
   double volumeRatio = volume / totalVolume;
-  double missingCellsRatio = (double)numMissingCells / totalNumCells;
+  double missingCellsRatio = (double) numMissingCells / totalNumCells;
+  ROS_INFO_STREAM("[LocalPlanner]: missing num cells " << numMissingCells << " total num cells " << totalNumCells);
   ROS_INFO_STREAM("[LocalPlanner]: missing cell ratio: " << missingCellsRatio);
   ROS_INFO_STREAM("[LocalPlanner]: volume ratio: " << volumeRatio);
   if (digZoneId_ == 0) {
