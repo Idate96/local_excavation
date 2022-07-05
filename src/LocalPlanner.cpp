@@ -438,6 +438,8 @@ Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd, std::string 
   // this allows the shovel to keep the same orientation for a bit even outside of the soil
   // this is convenient in practice because the height map might be imprecise and we might encounter soil before we expect it.
   Eigen::Vector3d w_P_wd_off = w_P_wd - verticalOffset_ * tan(attitudeAngle) * w_P_dba;
+  // apply radialOffset_ in the direction dba
+  w_P_wd_off = w_P_wd_off - radialOffset_ * w_P_dba;
   w_P_wd_off(2) = w_P_wd(2) + verticalOffset_;
 
   // this takes care of the fact that we have a penetration phase
@@ -963,7 +965,8 @@ bool LocalPlanner::isDigZoneComplete(int zoneId) {
   //  ROS_INFO_STREAM("[LocalPlanner]: Number of missing cells ratio: " << (double) numMissingCells / totalNumCells);
   double volumeRatio = volume / totalVolume;
   double missingCellsRatio = (double)numMissingCells / totalNumCells;
-  //  ROS_INFO_STREAM("[LocalPlanner]: missing cell ratio: " << missingCellsRatio);
+  ROS_INFO_STREAM("[LocalPlanner]: missing cell ratio: " << missingCellsRatio);
+  ROS_INFO_STREAM("[LocalPlanner]: volume ratio: " << volumeRatio);
   if (digZoneId_ == 0) {
     completed = volumeRatio < volumeThreshold_ || missingCellsRatio < missingCellsThreshold_;
   } else {
@@ -1966,7 +1969,6 @@ Eigen::Vector3d LocalPlanner::getDumpPoint() {
 }
 
 void LocalPlanner::syncLayers() {
-  excavationMappingPtr_->syncElevationLayer();
   unique_lock lock(mapMutex_);
   planningMap_["elevation"] = excavationMappingPtr_->gridMap_["elevation"];
   planningMap_["planning_elevation"] = planningMap_["elevation"];
