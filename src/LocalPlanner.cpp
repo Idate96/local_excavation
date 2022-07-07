@@ -143,7 +143,12 @@ bool LocalPlanner::initialize(std::string designMapBag) {
     planningMap_.add("dug_area", 0);
   }
   if (!planningMap_.exists("working_area")) {
-    planningMap_.add("working_area", 0);
+    if (planningMap_.exists("occupancy")) {
+      planningMap_.add("working_area", 0);
+      planningMap_["working_area"] = planningMap_["occupancy"];
+    } else {
+      planningMap_.add("working_area", 0);
+    }
   }
   if (!planningMap_.exists("planning_zones")) {
     planningMap_.add("planning_zones", 0);
