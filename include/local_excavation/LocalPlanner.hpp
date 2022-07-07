@@ -41,6 +41,8 @@ class LocalPlanner {
   Eigen::Vector3d getDiggingPoint() const { return diggingPoint_; };
   Eigen::Vector3d getDiggingPointBaseFrame() const;
   Eigen::Vector3d findShovelDesiredOrientation(Eigen::Vector3d& world_diggingPoint, Eigen::Vector3d& diggingDirection);
+  double getRadialOffset(){return radialOffset_;}
+  
   // get digging direction ?
   // planning
   std::vector<Eigen::Vector3d> getDigStraightTrajectory(Eigen::Vector3d& diggingPoint);
