@@ -102,7 +102,6 @@ bool LocalPlanner::loadParameters() {
   //    ROS_ERROR("Could not load height precision");
   //    return false;
   //  }
-
   //  if (!nh_.getParam("/local_excavation/inner_radius", circularWorkspaceInnerRadius_)) {
   //    ROS_ERROR("Could not load the inner radius");
   //    return false;
@@ -130,7 +129,7 @@ bool LocalPlanner::initialize(std::string designMapBag) {
   planningMap_ = excavationMappingPtr_->gridMap_;
   // add the following layers if they don't exit: "planning elevation", "dumping_distance", "planning_zones", "dug_area", "working_area"
   if (!planningMap_.exists("planning_zones")) {
-    planningMap_.add("planning_zones", 0);
+    planningMap_.add("planning_zones");
   }
   if (!planningMap_.exists("dumping_distance")) {
     planningMap_.add("dumping_distance", 0);
@@ -150,9 +149,7 @@ bool LocalPlanner::initialize(std::string designMapBag) {
       planningMap_.add("working_area", 0);
     }
   }
-  if (!planningMap_.exists("planning_zones")) {
-    planningMap_.add("planning_zones", 0);
-  }
+
   //  planningMap_.add("working_area", 0);
   // if occupancy layer is available initialize the working area equal to it
   // the working area layer is used by the path planner to determine the area that is free to move into
@@ -174,7 +171,7 @@ bool LocalPlanner::initialize(std::string designMapBag) {
 
   lock.unlock();
   ROS_INFO_STREAM("[LocalPlanner]: Initialized planning map");
-  //  this->createPlanningZones();
+  this->createPlanningZones();
   //  this->updateDugZones();
   //  this->choosePlanningZones();
   this->createShovelFilter();
@@ -372,6 +369,59 @@ loco_m545::RotationQuaternion LocalPlanner::findOrientationWorldToShovel(double 
                                        loco_m545::AngleAxis(shovelYawAngle, 0, 0, 1));
 }
 
+std::tuple<double, double> LocalPlanner::computeVolumeBetweenShovelPoints(Eigen::Vector3d& w_posLeftShovel_wl,
+                                                                          Eigen::Vector3d& w_posRightShovel_wr,
+                                                                          double previousTerrainElevation) {
+  double lineWorkspaceVolume = 0;
+  double lineOtherVolume = 0;
+  // update planning layer of the planning map by setting the height to the new point
+  for (grid_map::LineIterator iterator(planningMap_, Eigen::Vector2d(w_posRightShovel_wr.block<2, 1>(0, 0)),
+                                       Eigen::Vector2d(w_posLeftShovel_wl.block<2, 1>(0, 0)));
+       !iterator.isPastEnd(); ++iterator) {
+    grid_map::Position iteratorPosition;
+    planningMap_.getPosition(*iterator, iteratorPosition);
+    const grid_map::Index index(*iterator);
+    double currentPointElevation =
+        w_posRightShovel_wr(2) + (w_posLeftShovel_wl(2) - w_posRightShovel_wr(2)) /
+                                     (w_posLeftShovel_wl.block<2, 1>(0, 0) - w_posRightShovel_wr.block<2, 1>(0, 0)).norm() *
+                                     (iteratorPosition - w_posRightShovel_wr.block<2, 1>(0, 0)).norm();
+    double terrainElevation = planningMap_.atPosition("planning_elevation", iteratorPosition);
+    planningMap_.atPosition("planning_elevation", iteratorPosition) = currentPointElevation;
+    // if nan set equal to previous terrain elevation
+    if (std::isnan(terrainElevation)) {
+      terrainElevation = previousTerrainElevation;
+    } else {
+      previousTerrainElevation = terrainElevation;
+    }
+    double volumeSign = 1;
+    // we need a volume sign to check weather we are supposed to dig here or not
+    if (planningMap_.at("excavation_mask", index) != -1) {
+      volumeSign = -1;
+    }
+    // if the value of terrain elevation is nan do not compute the volume
+    //      if (std::isnan(terrainElevation)) {
+    //        continue;
+    //      }
+    // set the value if the elevation at the current position in layer elevation is lower than the current value
+    if (currentPointElevation < terrainElevation) {
+      double cellVolume = planningMap_.getResolution() * planningMap_.getResolution() * (terrainElevation - currentPointElevation);
+
+      if (planningMap_.at("planning_zones", index) == digZoneId_) {
+        lineWorkspaceVolume += volumeSign * cellVolume;
+        // if workspaceVolume becomes nan raise an error
+        if (std::isnan(lineWorkspaceVolume)) {
+          ROS_ERROR("[LocalPlanner]: workspaceVolume is nan");
+        }
+      } else {
+        // if the cell is not in the digging zone we do not want to dig here
+        lineOtherVolume += volumeSign * cellVolume;
+      }
+    }
+  }
+  // return a tuple with the volume of the workspace and the volume of the other layer
+  return std::make_tuple(lineWorkspaceVolume, lineOtherVolume);
+}
+
 Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd, std::string targetLayer) {
   // w_P_wd is the digging point
   // point below the surface
@@ -381,8 +431,6 @@ Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd, std::string 
   planningMap_.getIndex(wg_P_wd, wg_index);
   double elevation = excavationMappingPtr_->getElevation(wg_P_wd);
   double desiredElevation = planningMap_.at(targetLayer, wg_index);
-  //  ROS_INFO_STREAM("[LocalPlanner]: elevation: " << elevation);
-  //  ROS_INFO_STREAM("[LocalPlanner]: desired elevation: " << desiredElevation);
   if (elevation - desiredElevation < heightPrecision_) {
     //    ROS_WARN("[LocalPlanner]: digging point is not below the surface");
     return Trajectory();
@@ -486,16 +534,17 @@ Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd, std::string 
   Eigen::Vector3d w_P_wd_current = w_P_wd1;
   double stepSize = planningMap_.getResolution() / 3;
   double volume = 0;
+  double volumeLeft = 0;
+  double volumeRight = 0;
   std::vector<double> stepVolumes;
   double workspaceVolume = 0;
-  grid_map::Matrix& workspace = planningMap_["planning_zones"];
 
   Eigen::Vector3d s_posLeftShovel_cl(0.0, 0.75, 0.0);
   Eigen::Vector3d s_posRightShovel_cr(0.0, -0.75, 0.0);
   // now we march with step size of planningMap resolution / 2 in the direction of the boom direction until the trajectory is not valid
   // anymore
   int numSteps = 0;
-  volume += shovelVolumeBonus_;
+  //  volume += shovelVolumeBonus_;
   // variable used to handle nans
   double previousElevation = 0;
   double previousLineVolume = 0;
@@ -503,11 +552,11 @@ Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd, std::string 
 
   while (valid) {
     Eigen::Vector3d w_P_next = w_P_wd_current + stepSize * w_P_dba;
-    // height is overriden
+    // height is overridden
     grid_map::Index nextIndex;
     planningMap_.getIndex(w_P_next.head(2), nextIndex);
     double nextDesiredElevation = planningMap_.at(targetLayer, nextIndex);
-    double nextElevation = planningMap_.at("elevation", nextIndex);
+    double nextElevation = planningMap_.at("planning_elevation", nextIndex);
     // if nan set nextElevation to previousElevation
     if (std::isnan(nextElevation)) {
       nextElevation = previousElevation;
@@ -520,56 +569,30 @@ Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd, std::string 
     // position of the left point of the shovel (l) in world frame
     Eigen::Vector3d w_posLeftShovel_wl = w_P_next + R_ws_d1.inverse() * s_posLeftShovel_cl;
     Eigen::Vector3d w_posRightShovel_wr = w_P_next + R_ws_d1.inverse() * s_posRightShovel_cr;
-    double elevationChange = 0;
     double previousTerrainElevation = nextElevation;
+    // get the tuple lineVolume and otherLineVolume
+    // compute the volume for the left part of the shovel
+    std::tuple<double, double> lineLeftVolume = this->computeVolumeBetweenShovelPoints(w_posLeftShovel_wl, w_P_next, nextDesiredElevation);
+    std::tuple<double, double> lineRightVolume =
+        this->computeVolumeBetweenShovelPoints(w_P_next, w_posRightShovel_wr, nextDesiredElevation);
+    // get the volume inside the workspace and outside
+    double workspaceLineVolume = std::get<0>(lineLeftVolume) + std::get<0>(lineRightVolume);
+    double otherLineVolume = std::get<1>(lineLeftVolume) + std::get<1>(lineRightVolume);
 
-    // update planning layer of the planning map by setting the height to the new point
-    for (grid_map::LineIterator iterator(planningMap_, Eigen::Vector2d(w_posRightShovel_wr.block<2, 1>(0, 0)),
-                                         Eigen::Vector2d(w_posLeftShovel_wl.block<2, 1>(0, 0)));
-         !iterator.isPastEnd(); ++iterator) {
-      grid_map::Position iteratorPosition;
-      planningMap_.getPosition(*iterator, iteratorPosition);
-      const grid_map::Index index(*iterator);
-      double currentPointElevation =
-          w_posRightShovel_wr(2) + (w_posLeftShovel_wl(2) - w_posRightShovel_wr(2)) /
-                                       (w_posLeftShovel_wl.block<2, 1>(0, 0) - w_posRightShovel_wr.block<2, 1>(0, 0)).norm() *
-                                       (iteratorPosition - w_posRightShovel_wr.block<2, 1>(0, 0)).norm();
-      double terrainElevation = planningMap_.atPosition("elevation", iteratorPosition);
-      // if nan set equal to previous terrain elevation
-      if (std::isnan(terrainElevation)) {
-        terrainElevation = previousTerrainElevation;
-      } else {
-        previousTerrainElevation = terrainElevation;
-      }
-      double volumeSign = 1;
-      // we need a volume sign to check weather we are supposed to dig here or not
-      if (planningMap_.at("excavation_mask", index) != -1) {
-        volumeSign = -1;
-      }
-      // if the value of terrain elevation is nan do not compute the volume
-      //      if (std::isnan(terrainElevation)) {
-      //        continue;
-      //      }
-      // set the value if the elevation at the current position in layer elevation is lower than the current value
-      if (currentPointElevation < terrainElevation) {
-        elevationChange += terrainElevation - currentPointElevation;
-        if (workspace(index(0), index(1)) < 0) {
-          double cellVolume = planningMap_.getResolution() * planningMap_.getResolution() * (terrainElevation - currentPointElevation);
-          workspaceVolume += volumeSign * cellVolume;
-          // if workspaceVolume becomes nan raise an error
-          if (std::isnan(workspaceVolume)) {
-            ROS_ERROR("[LocalPlanner]: workspaceVolume is nan");
-          }
-        }
-      }
-    }
+
+    //    std::tuple<double, double> lineVolume = this->computeVolumeBetweenShovelPoints(w_posLeftShovel_wl, w_posRightShovel_wr,
+    //    nextDesiredElevation); double workspaceLineVolume_ = std::get<0>(lineVolume); double otherLineVolume_ = std::get<1>(lineVolume);
+    //    double totalLineVolume = workspaceLineVolume_ + otherLineVolume_;
     // append point
     digPoints.push_back(w_P_next);
     // check if digging outside of the dig area stop
-    // get volume
-    double lineVolume = elevationChange * planningMap_.getResolution() * planningMap_.getResolution();
-    stepVolumes.push_back(lineVolume);
-    volume += lineVolume;
+    stepVolumes.push_back(workspaceLineVolume);
+
+    volume += workspaceLineVolume + otherLineVolume;
+    volumeLeft += std::get<0>(lineLeftVolume) + std::get<1>(lineLeftVolume);
+    volumeRight += std::get<0>(lineRightVolume) + std::get<1>(lineRightVolume);
+
+    workspaceVolume += workspaceLineVolume;
     // if volume becomes nan raise an error
     if (std::isnan(volume)) {
       ROS_ERROR("[LocalPlanner]: volume is nan");
@@ -583,7 +606,7 @@ Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd, std::string 
     //    ROS_INFO_STREAM("[LocalPlanner]: line volume " << lineVolume);
     //    ROS_INFO_STREAM("[LocalPlanner]: volume " << volume);
     //    ROS_INFO_STREAM("[LocalPlanner]: workspace volume " << workspaceVolume);
-    if (volume > maxVolume_) {
+    if (volume > maxVolume_ || volumeLeft > maxVolume_ / 2 || volumeRight > maxVolume_ / 2) {
       valid = false;
       break;
     }
@@ -598,6 +621,8 @@ Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd, std::string 
     numSteps++;
     //    ROS_INFO_STREAM("[LocalPlanner]: step " << numSteps << " volume " << volume);
   }
+  // reset planning elevation
+  planningMap_["planning_elevation"] = planningMap_["elevation"];
   // interpolate the orientation of the shovel
   double stepSizePitchOrientation = (targetAttitude - attitudeAngle) / (digPoints.size() - 1);
   double currentPitchOrientation = attitudeAngle;
@@ -621,7 +646,6 @@ Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd, std::string 
   digOrientations.erase(digOrientations.begin(), digOrientations.begin() + numPointsToRemove);
   stepVolumes.erase(stepVolumes.begin(), stepVolumes.begin() + numPointsToRemove);
   numSteps -= numPointsToRemove;
-
   // refine the trajectories by the last n point whose volume is zero
   numPointsToRemove = 0;
   // we start from the end of stepVolumes because we want to remove the last n points
@@ -637,11 +661,14 @@ Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd, std::string 
   stepVolumes.erase(stepVolumes.end() - numPointsToRemove, stepVolumes.end());
   numSteps -= numPointsToRemove;
 
+  // if no volume in the workspace return empty trajectory
+    if (digPoints.size() == 0) {
+        return Trajectory();
+    }
   // get last point of the trajectory
   Eigen::Vector3d w_P_wd_last = digPoints.back();
   // get the orientation of the shovel at the last point
   Eigen::Quaterniond R_ws_d_last = digOrientations.back();
-
   Eigen::Vector3d closingOffset(0.1, 0, 0.7);
   Eigen::Vector3d w_P_d2d3 = w_P_dba.normalized() * closingOffset(0);
   // get desired height at the end of the trajectory
@@ -691,7 +718,7 @@ Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd, std::string 
   trajectory.scoopedVolume = volume;
   trajectory.workspaceVolume = workspaceVolume;
   trajectory.distanceFromBase = (w_P_wd_off - w_P_wba).norm();
-  trajectory.relativeHeading = abs(relativeHeading);
+  trajectory.relativeHeading = relativeHeading;
   //  ROS_INFO_STREAM("[LocalPlanner]: completed trajectory starting at" << w_P_wd_off.transpose() << " with heading " << heading);
 
   // set the trajectory
@@ -778,18 +805,19 @@ Trajectory LocalPlanner::getOptimalTrajectory() {
 
 double LocalPlanner::volumeObjective(Trajectory trajectory) {
   double workspaceCost = volumeWeight_ * trajectory.workspaceVolume;
-  double distanceWeight = distanceWeight_ * trajectory.distanceFromBase;
-  double headingWeight = headingWeight_ * trajectory.relativeHeading;
+  // as volume is removed more importance is given to the workspace volume
+  double distanceWeight = remainingVolumeRatio_ * remainingVolumeRatio_ * distanceWeight_ *
+                          (trajectory.distanceFromBase - circularWorkspaceInnerRadius_) /
+                          (circularWorkspaceOuterRadius_ - circularWorkspaceInnerRadius_);
+  double headingWeight =
+      remainingVolumeRatio_ * remainingVolumeRatio_ * headingWeight_ * trajectory.relativeHeading / (circularWorkspaceAngle_ / 2.0);
   double objective = workspaceCost + distanceWeight + headingWeight;
-  //  ROS_INFO_STREAM("[LocalPlanner]: workspace cost " << workspaceCost);
-  //  ROS_INFO_STREAM("[LocalPlanner]: distance cost " << distanceWeight);
-  //  ROS_INFO_STREAM("[LocalPlanner]: heading cost " << headingWeight);
   return objective;
 }
 
 void LocalPlanner::optimizeTrajectory() {
-  ROS_INFO_STREAM("[LocalPlanner]: Optimizing trajectory");
   this->updatePlanningMap();
+  ROS_INFO_STREAM("[LocalPlanner]: Optimizing trajectory");
   //  ROS_INFO_STREAM("[LocalPlanner]: Planning map updated");
   // iterate over all the points belonging to the workspace polygon and compute a feasable trajectory starting from each point
   // and find the point that maximizes the objective function
@@ -816,17 +844,14 @@ void LocalPlanner::optimizeTrajectory() {
     // get the position of the point
     grid_map::Position diggingPoint;
     planningMap_.getPosition(*iterator, diggingPoint);
-    //    ROS_INFO_STREAM("[LocalPlanner]: Digging point: " << diggingPoint.x() << " " << diggingPoint.y());
     // get the elevation of the point
     double elevation = excavationMappingPtr_->getElevation(diggingPoint);
-    //    ROS_INFO_STREAM("[LocalPlanner]: Digging point elevation: " << elevation);
     // if the elevation is not nan compute the trajectory
     if (!std::isnan(elevation)) {
       // create the point in 3d
       Eigen::Vector3d w_P_wd(diggingPoint.x(), diggingPoint.y(), elevation);
       Trajectory trajectory = this->computeTrajectory(w_P_wd, targetLayer);
       double objective = this->volumeObjective(trajectory);
-      //      ROS_INFO_STREAM("[LocalPlanner]: Objective: " << objective);
       //    ROS_INFO_STREAM("[LocalPlanner]: Objective " << objective);
       if (objective > maxObjective) {
         bestTrajectory = trajectory;
@@ -834,13 +859,25 @@ void LocalPlanner::optimizeTrajectory() {
       }
     }
   }
-  //  ROS_INFO_STREAM("[LocalPlanner]: Best trajectory has volume " << maxObjective);
+  //  ROS_INFO_STREAM("[LocalPlanner]: Best trajectory has volume " << bestTrajectory.workspaceVolume);
+  //  // print best trajectory relative heading nad distance from base
+  //  ROS_INFO_STREAM("[LocalPlanner]: Best trajectory has relative heading " << bestTrajectory.relativeHeading);
+  //  ROS_INFO_STREAM("[LocalPlanner]: Best trajectory has distance from base " << bestTrajectory.distanceFromBase);
+  double workspaceCost = volumeWeight_ * bestTrajectory.workspaceVolume;
+  double distanceWeight = remainingVolumeRatio_ * remainingVolumeRatio_ * distanceWeight_ * distanceWeight_ *
+                          (bestTrajectory.distanceFromBase - circularWorkspaceInnerRadius_) /
+                          (circularWorkspaceOuterRadius_ - circularWorkspaceInnerRadius_);
+  double headingWeight =
+      remainingVolumeRatio_ * remainingVolumeRatio_ * headingWeight_ * bestTrajectory.relativeHeading / (circularWorkspaceAngle_ / 2.0);
+  ROS_INFO_STREAM("[LocalPlanner]: Best trajectory has volume cost " << workspaceCost);
+  ROS_INFO_STREAM("[LocalPlanner]: Best trajectory has distance weight " << distanceWeight);
+  ROS_INFO_STREAM("[LocalPlanner]: Best trajectory has heading weight " << headingWeight);
   // raise a warning if the found trajectory is empty
   if (bestTrajectory.positions.size() == 0) {
     ROS_WARN_STREAM("[LocalPlanner]: could not find a valid trajectory!");
   }
   // print expected volume for the best trajectory
-  ROS_INFO_STREAM("[LocalPlanner]: Expected volume " << bestTrajectory.workspaceVolume);
+  ROS_INFO_STREAM("[LocalPlanner]: ---------------------------- Expected volume " << bestTrajectory.workspaceVolume);
   optimalDigTrajectory_ = bestTrajectory;
 }
 
@@ -941,7 +978,7 @@ bool LocalPlanner::isDigZoneComplete(int zoneId) {
         //      ROS_INFO_STREAM("[LocalPlanner]: desired elevation " << desiredElevation << " elevation " << elevation);
         // get soil volume remaining
         heightDifference = std::max(0.0, elevation - desiredElevation);
-        ROS_INFO_STREAM("[LocalPlanner]: height difference " << heightDifference);
+        //        ROS_INFO_STREAM("[LocalPlanner]: height difference " << heightDifference);
         originalHeightDifference = std::max(0.0, planningMap_.at("original_elevation", index) - desiredElevation);
         //      ROS_INFO_STREAM("[LocalPlanner]: height difference " << heightDifference);
         //      ROS_INFO_STREAM("[LocalPlanner]: original height difference " << originalHeightDifference);
@@ -971,13 +1008,18 @@ bool LocalPlanner::isDigZoneComplete(int zoneId) {
   //  ROS_INFO_STREAM("[LocalPlanner]: Number of missing cells is " << numMissingCells);
   //  ROS_INFO_STREAM("[LocalPlanner]: Volume ratio: " << volume / totalVolume);
   //  ROS_INFO_STREAM("[LocalPlanner]: Number of missing cells ratio: " << (double) numMissingCells / totalNumCells);
-  double volumeRatio = volume / totalVolume;
-  double missingCellsRatio = (double) numMissingCells / totalNumCells;
+  remainingVolumeRatio_ = volume / totalVolume;
+  // if nan throw error
+  if (std::isnan(remainingVolumeRatio_)) {
+    ROS_ERROR_STREAM("[LocalPlanner]: Volume ratio is nan");
+    return false;
+  }
+  double missingCellsRatio = (double)numMissingCells / totalNumCells;
   ROS_INFO_STREAM("[LocalPlanner]: missing num cells " << numMissingCells << " total num cells " << totalNumCells);
   ROS_INFO_STREAM("[LocalPlanner]: missing cell ratio: " << missingCellsRatio);
-  ROS_INFO_STREAM("[LocalPlanner]: volume ratio: " << volumeRatio);
+  ROS_INFO_STREAM("[LocalPlanner]: volume ratio: " << remainingVolumeRatio_);
   if (digZoneId_ == 0) {
-    completed = volumeRatio < volumeThreshold_ || missingCellsRatio < missingCellsThreshold_;
+    completed = remainingVolumeRatio_ < volumeThreshold_ || missingCellsRatio < missingCellsThreshold_;
   } else {
     completed = missingCellsRatio < 1.5 * missingCellsThreshold_;
   }
@@ -1571,11 +1613,8 @@ void LocalPlanner::createPlanningZones() {
   zoneCenters_.push_back(backRightZoneCenter);
   ROS_INFO_STREAM("[LocalPlanner]: Planning zones created");
   // print the zone centers
-  for (int i = 0; i < zoneCenters_.size(); i++) {
-    ROS_INFO_STREAM("[LocalPlanner]: Zone " << i << " center: " << zoneCenters_[i]);
-  }
 
-  std::vector<double> zoneValues = {-1, .2, .2, 1, 1};
+  std::vector<double> zoneValues = {0, 1, 2, 3, 4};
   this->addPlanningZonesToMap(zoneValues);
   //  ROS_INFO_STREAM("[LocalPlanner]: planning zones created");
 }
@@ -1591,9 +1630,6 @@ double LocalPlanner::distanceZones(int zoneId1, int zoneId2) {
   //  ROS_INFO_STREAM("[LocalPlanner]: distance between zone " << zoneId1 << " and zone " << zoneId2);
   // we define the distance between two zones as the distance between the centers of the zones
   // print zone centers
-  for (int i = 0; i < zoneCenters_.size(); i++) {
-    ROS_INFO_STREAM("[LocalPlanner]: Zone " << i << " center: " << zoneCenters_[i]);
-  }
   return (zoneCenters_.at(zoneId1) - zoneCenters_.at(zoneId2)).norm();
 }
 

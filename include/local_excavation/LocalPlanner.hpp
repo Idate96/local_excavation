@@ -211,13 +211,15 @@ private:
 
   void createShovelFilter();
   std::vector<Eigen::Vector2d> shovelFilter_;
-
+  // compute volume between shovel pts
+  std::tuple<double, double> computeVolumeBetweenShovelPoints(Eigen::Vector3d& w_posLeftShovel_wl, Eigen::Vector3d& w_posRightShovel_wr, double previousTerrainElevation);
   // current dig and dump zone
   int dumpZoneId_;
   int digZoneId_;
 
   // boolean to indicate whether a reset is needed
   bool createNewZones_ = true;
+  double remainingVolumeRatio_;
 
   // optimization weight
   double volumeWeight_;
