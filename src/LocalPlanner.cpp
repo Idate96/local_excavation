@@ -64,8 +64,6 @@ bool LocalPlanner::loadParameters() {
                 nh_.param<double>("/local_excavation/inactive_area_ratio", inactiveAreaRatio_, .5) &&
                 nh_.param<double>("/local_excavation/dumping_distance_weight", dumpingZoneDistanceWeight_, .5) &&
                 nh_.param<double>("/local_excavation/dig_dump_distance_weight", digDumpDistanceWeight_, 1.) &&
-                nh_.param<double>("/local_excavation/x_bias_weight", xBiasWeight_, 1.) &&
-                nh_.param<double>("/local_excavation/y_bias_weight", yBiasWeight_, 1.) &&
                 nh_.param<double>("/local_excavation/excavation_area_ratio", excavationAreaRatio_, .1) &&
                 nh_.param<double>("/local_excavation/x_dump_weight", xDumpWeight_, -1.) &&
                 nh_.param<double>("/local_excavation/y_dump_weight", yDumpWeight_, 1.) &&
@@ -1439,7 +1437,7 @@ double LocalPlanner::getDumpingScore(int zoneId) {
   Eigen::Vector3d w_P_wba = Eigen::Vector3d(T_mba.transform.translation.x, T_mba.transform.translation.y, T_mba.transform.translation.z);
   // from geometric message to tf2 transform
   tf2::Transform T_mba_tf2 = tf2::Transform(
-      tf2::Quaternion(T_mba.transform.rotation.x, T_mba.transform.rotation.y, T_mba.transform.rotation.z, findT_mba.transform.rotation.w),
+      tf2::Quaternion(T_mba.transform.rotation.x, T_mba.transform.rotation.y, T_mba.transform.rotation.z, T_mba.transform.rotation.w),
       tf2::Vector3(T_mba.transform.translation.x, T_mba.transform.translation.y, T_mba.transform.translation.z));
   tf2::Transform T_bam_tf2 = T_mba_tf2.inverse();
 
@@ -1463,9 +1461,12 @@ double LocalPlanner::getDumpingScore(int zoneId) {
   Eigen::Vector2d b_zoneCenter_bc_2d(b_zoneCenter_bc.x(), b_zoneCenter_bc.y());
   //  ROS_INFO_STREAM("[LocalPlanner]: zone " << zoneId << " center in base frame: " << b_zoneCenter_bc_2d << " and in map frame: " <<
   //  w_zoneCenter_wc);
-  double scoreWorkingDir = workindDirWeight_ * (b_zoneCenter_bc.x() * workingDirection_);
+  // this is only used when at the end of coverage line the robot has to decide weather to dump
+  // on its back-left or back-right. It should do so in the opposite direction of where it's gonna drive next.
+  // dot product between eigen vectors w_zoneCenter_bc and workingDirection_
+  double scoreWorkingDir = workingDirWeight_ * 0;
   double scoreLocalDistance = digDumpDistanceWeight_ * this->shovelDistanceFromZone(zoneId);
-  score += scoreX + scoreLocalDistance + scoreGlocalDistance;
+  score += scoreWorkingDir + scoreLocalDistance + scoreGlocalDistance;
   ROS_INFO_STREAM("[LocalPlanner]: dumping score for zone " << zoneId << " is " << score);
   //  print detailed breakdown of the score contribution
   ROS_INFO_STREAM("[LocalPlanner]: total score " << score << ", dumping score breakdown for zone " << zoneId << " is " << scoreWorkingDir

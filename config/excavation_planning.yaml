@@ -21,8 +21,6 @@ local_excavation:
   active_area_ratio: 0.05
   dumping_distance_weight: 0.1
   dig_dump_distance_weight: 1.
-  x_bias_weight: 1.
-  y_bias_weight: 1.
   excavation_area_ratio: 0.1
   x_dump_weight: 1.
   y_dump_weight: 1.
