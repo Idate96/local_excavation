@@ -16,7 +16,7 @@ local_excavation:
   height_dump_threshold: 2.0
   volume_threshold: 0.01 # in m^3, parameter that controls when the workspace is done
   height_threshold: 0.05 # in meters, parameter that controls when a cell not considered done
-  missing_cells_threshold: 0.05 # fraction, parameter that controls when the workspace is done
+  missing_cells_threshold: 0.03 # fraction, parameter that controls when the workspace is done
   inactive_area_ratio: 0.95
   active_area_ratio: 0.05
   dumping_distance_weight: 0.1

@@ -199,6 +199,9 @@ double LocalPlanner::computeWorkspaceVolume(int zoneId, std::string targetLayer)
   // compute the volume of the workspace of the zone
   // by subtracking the elevation layer from the target layer in the area of the zone
   // obtain the volume by summing the difference and multiplying by the resolution^2
+  if (zoneId == -1) {
+    return 0;
+  }
   double workspaceVolume = 0;
   ROS_INFO_STREAM("[LocalPlanner]: Computing workspace volume for zone " << zoneId);
   // iterate over the zone cells
@@ -2091,11 +2094,11 @@ void LocalPlanner::findDumpPoint() {
       //        xDumpWeight = xDumpWeight_ * -1;
       //      }
       // print x and y in base frame
-      ROS_INFO_STREAM("[LocalPlanner] : findDumpPoint: found dump point at x: " << x_base << " y: " << y_base);
+//      ROS_INFO_STREAM("[LocalPlanner] : findDumpPoint: found dump point at x: " << x_base << " y: " << y_base);
       double xBaseScore = x_base * xDumpWeight;
       // assuming enough lateral distance
       double yBaseScore = abs(y_base) * yDumpWeight_;
-      ROS_INFO_STREAM("[LocalPlanner] : findDumpPoint: xBaseScore: " << xBaseScore << " yBaseScore: " << yBaseScore);
+//      ROS_INFO_STREAM("[LocalPlanner] : findDumpPoint: xBaseScore: " << xBaseScore << " yBaseScore: " << yBaseScore);
 
       double baseScore = xBaseScore + yBaseScore;
 

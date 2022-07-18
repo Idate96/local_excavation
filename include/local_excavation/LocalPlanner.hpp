@@ -35,7 +35,7 @@ class LocalPlanner {
   bool updatePlanningMap();
   double computeWorkspaceVolume(int zoneId, std::string targetLayer);
   std::string getTargetDigLayer(int zoneId);
-  grid_map::GridMap getPlanningMap() { return planningMap_; }
+  grid_map::GridMap& getPlanningMap() { return planningMap_; }
   void setLocalMap(grid_map::GridMap& localMap);
 
   // getters
