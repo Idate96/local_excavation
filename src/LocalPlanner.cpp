@@ -64,8 +64,6 @@ bool LocalPlanner::loadParameters() {
                 nh_.param<double>("/local_excavation/inactive_area_ratio", inactiveAreaRatio_, .5) &&
                 nh_.param<double>("/local_excavation/dumping_distance_weight", dumpingZoneDistanceWeight_, .5) &&
                 nh_.param<double>("/local_excavation/dig_dump_distance_weight", digDumpDistanceWeight_, 1.) &&
-                nh_.param<double>("/local_excavation/x_bias_weight", xBiasWeight_, 1.) &&
-                nh_.param<double>("/local_excavation/y_bias_weight", yBiasWeight_, 1.) &&
                 nh_.param<double>("/local_excavation/excavation_area_ratio", excavationAreaRatio_, .1) &&
                 nh_.param<double>("/local_excavation/x_dump_weight", xDumpWeight_, -1.) &&
                 nh_.param<double>("/local_excavation/y_dump_weight", yDumpWeight_, 1.) &&
@@ -201,6 +199,9 @@ double LocalPlanner::computeWorkspaceVolume(int zoneId, std::string targetLayer)
   // compute the volume of the workspace of the zone
   // by subtracking the elevation layer from the target layer in the area of the zone
   // obtain the volume by summing the difference and multiplying by the resolution^2
+  if (zoneId == -1) {
+    return 0;
+  }
   double workspaceVolume = 0;
   ROS_INFO_STREAM("[LocalPlanner]: Computing workspace volume for zone " << zoneId);
   // iterate over the zone cells
@@ -637,9 +638,8 @@ Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd, std::string 
     // append point
     digPoints.push_back(w_P_next);
     // check if digging outside of the dig area stop
-    stepVolumes.push_back(workspaceLineVolume);
-
     volume += workspaceLineVolume + otherLineVolume;
+    stepVolumes.push_back(workspaceLineVolume + otherLineVolume);
     volumeLeft += std::get<0>(lineLeftVolume) + std::get<1>(lineLeftVolume);
     volumeRight += std::get<0>(lineRightVolume) + std::get<1>(lineRightVolume);
 
@@ -649,7 +649,6 @@ Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd, std::string 
       ROS_ERROR("[LocalPlanner]: volume is nan");
     }
     if (volume < 0) {
-      ROS_WARN("[LocalPlanner]: volume is negative");
       valid = false;
       break;
     }
@@ -1019,7 +1018,7 @@ bool LocalPlanner::isDigZoneComplete(int zoneId) {
     // get the position of the point
     grid_map::Index index(*iterator);
     // get the elevation of the point
-    double elevation = planningMap_.at("elevation", index);
+    double elevation = planningMap_.at("elevation", index);  // this updated between one scoop and the next.
     double heightDifference;
     double originalHeightDifference;
     if (planningMap_.at("excavation_mask", index) == -1) {
@@ -1039,7 +1038,7 @@ bool LocalPlanner::isDigZoneComplete(int zoneId) {
         double deltaOriginalVolume = originalHeightDifference * planningMap_.getResolution() * planningMap_.getResolution();
         double deltaSoilVolume = heightDifference * planningMap_.getResolution() * planningMap_.getResolution();
         volume += deltaSoilVolume;
-//        totalVolume += deltaOriginalVolume;
+        totalVolume += deltaOriginalVolume;
       } else if (zoneId == 1 || zoneId == 2) {
         double desiredElevation = planningMap_.at("original_elevation", index);
         heightDifference = std::max(0.0, elevation - desiredElevation);
@@ -1059,7 +1058,8 @@ bool LocalPlanner::isDigZoneComplete(int zoneId) {
   //  ROS_INFO_STREAM("[LocalPlanner]: Number of missing cells is " << numMissingCells);
   //  ROS_INFO_STREAM("[LocalPlanner]: Volume ratio: " << volume / totalVolume);
   //  ROS_INFO_STREAM("[LocalPlanner]: Number of missing cells ratio: " << (double) numMissingCells / totalNumCells);
-  remainingVolumeRatio_ = volume / workspaceVolume_;
+  remainingVolumeRatio_ = volume / totalVolume;
+  ROS_INFO_STREAM("[LocalPlanner]: Workspace volume " << workspaceVolume_);
   // if nan throw error
   if (std::isnan(remainingVolumeRatio_)) {
     ROS_ERROR_STREAM("[LocalPlanner]: Volume ratio is nan");
@@ -1067,8 +1067,10 @@ bool LocalPlanner::isDigZoneComplete(int zoneId) {
   }
   double missingCellsRatio = (double)numMissingCells / totalNumCells;
   ROS_INFO_STREAM("[LocalPlanner]: missing num cells " << numMissingCells << " total num cells " << totalNumCells);
+  ROS_INFO_STREAM("#########################");
   ROS_INFO_STREAM("[LocalPlanner]: missing cell ratio: " << missingCellsRatio);
   ROS_INFO_STREAM("[LocalPlanner]: Volume ratio: " << remainingVolumeRatio_);
+  ROS_INFO_STREAM("#########################");
   if (digZoneId_ == 0) {
     completed = remainingVolumeRatio_ < volumeThreshold_ || missingCellsRatio < missingCellsThreshold_;
   } else {
@@ -1139,10 +1141,7 @@ void LocalPlanner::createShovelFilter() {
   this->publishShovelFilter(shovelFilter_, "map");
 }
 
-void LocalPlanner::choosePlanningZones() {
-  // this function selects the dig and dump zones.
-  // we first select the dig area between 0, 1, 2 zones
-  // dig zone 0 has priority if it's not completed
+int LocalPlanner::chooseDigZone() {
   digZoneId_ = -1;
   if (this->isZoneActive(0, true) && !this->isDigZoneComplete(0)) {
     digZoneId_ = 0;
@@ -1157,7 +1156,10 @@ void LocalPlanner::choosePlanningZones() {
       }
     }
   }
+  return digZoneId_;
+}
 
+int LocalPlanner::chooseDumpZone(int digZoneId) {
   // select the dumping zone we check zones 1, 2, 3, 4 to see if they are active.
   // we then sort the active zones based on their dumpingScore
   // we then select the zone with the highest dumpingScore
@@ -1165,10 +1167,10 @@ void LocalPlanner::choosePlanningZones() {
   // set dumpingScore to max
   double dumpingScore = std::numeric_limits<double>::max();
   for (int i = 1; i < 5; i++) {
-    if (i != digZoneId_) {
+    if (i != digZoneId) {
       bool zoneActive = this->isZoneActive(i, false);
       ROS_INFO_STREAM("[LocalPlanner]: Dumping Zone " << i << " is active: " << zoneActive);
-      if (zoneActive && digZoneId_ != -1) {
+      if (zoneActive && digZoneId != -1) {
         double zoneDumpingScore = this->getDumpingScore(i);
         ROS_INFO_STREAM("[LocalPlanner]: Dumping Zone " << i << " has dumping score: " << zoneDumpingScore);
         if (zoneDumpingScore < dumpingScore) {
@@ -1178,8 +1180,22 @@ void LocalPlanner::choosePlanningZones() {
       }
     }
   }
+  return dumpZoneId_;
+}
+
+void LocalPlanner::choosePlanningZones() {
+  // this function selects the dig and dump zones.
+  // we first select the dig area between 0, 1, 2 zones
+  // dig zone 0 has priority if it's not completed
+  digZoneId_ = this->chooseDigZone();
+
+  // select the dumping zone we check zones 1, 2, 3, 4 to see if they are active.
+  // we then sort the active zones based on their dumpingScore
+  // we then select the zone with the highest dumpingScore
+  dumpZoneId_ = this->chooseDumpZone(digZoneId_);
   // if the dig zone changed from the previous iteration, then we need to update the current workspace volume
   if (digZoneId_ != previousDigZoneId_) {
+    previousDigZoneId_ = digZoneId_;
     workspaceVolume_ = this->computeWorkspaceVolume(digZoneId_, this->getTargetDigLayer(digZoneId_));
   }
   // safety checks
@@ -1448,15 +1464,17 @@ double LocalPlanner::getDumpingScore(int zoneId) {
   Eigen::Vector2d b_zoneCenter_bc_2d(b_zoneCenter_bc.x(), b_zoneCenter_bc.y());
   //  ROS_INFO_STREAM("[LocalPlanner]: zone " << zoneId << " center in base frame: " << b_zoneCenter_bc_2d << " and in map frame: " <<
   //  w_zoneCenter_wc);
-  double scoreX = xBiasWeight_ * (b_zoneCenter_bc.x() - w_P_wba.x());
-  scoreX = 0;  // disable x bias
-  double scoreLocalDistance = digDumpDistanceWeight_ * this->distanceZones(digZoneId_, zoneId);
-  score += scoreX + scoreLocalDistance + scoreGlocalDistance;
+  // this is only used when at the end of coverage line the robot has to decide weather to dump
+  // on its back-left or back-right. It should do so in the opposite direction of where it's gonna drive next.
+  // dot product between eigen vectors w_zoneCenter_bc and workingDirection_
+  double scoreWorkingDir = workingDirWeight_ * 0;
+  double scoreLocalDistance = digDumpDistanceWeight_ * this->shovelDistanceFromZone(zoneId);
+  score += scoreWorkingDir + scoreLocalDistance + scoreGlocalDistance;
   ROS_INFO_STREAM("[LocalPlanner]: dumping score for zone " << zoneId << " is " << score);
   //  print detailed breakdown of the score contribution
-  ROS_INFO_STREAM("[LocalPlanner]: total score " << score << ", dumping score breakdown for zone " << zoneId << " is " << scoreX
-                                                 << " x bias, " << scoreLocalDistance << " local distance, " << scoreGlocalDistance
-                                                 << " global distance");
+  ROS_INFO_STREAM("[LocalPlanner]: total score " << score << ", dumping score breakdown for zone " << zoneId << " is " << scoreWorkingDir
+                                                 << " working dir bias, " << scoreLocalDistance << " local distance, "
+                                                 << scoreGlocalDistance << " global distance");
   ROS_INFO_STREAM("[LocalPlanner]: --------------------------------------------------------------------------");
   return score;
 }
@@ -1551,6 +1569,13 @@ void LocalPlanner::createPlanningZones() {
             Eigen::Quaterniond(T_bw.transform.rotation.w, T_bw.transform.rotation.x, T_bw.transform.rotation.y, T_bw.transform.rotation.z);
         t_bw = Eigen::Vector3d(T_bw.transform.translation.x, T_bw.transform.translation.y, T_bw.transform.translation.z);
       }
+      // get the x body axis expressed in world frame
+      Eigen::Vector3d x_bw = targetOrientation * Eigen::Vector3d::UnitX();
+      // 2d projection
+      currentOrientation_ = x_bw.head(2);
+      // normalize it
+      currentOrientation_.normalize();
+      ROS_INFO_STREAM("[LocalPlanner]: current orientation: " << currentOrientation_.transpose());
 
       // labmda function that checks weather vertex coordiinates are within bounds [-100, 100] and return true if they are
       auto isWithinBounds = [&](Eigen::Vector2d v) {
@@ -1690,6 +1715,25 @@ double LocalPlanner::distanceZones(int zoneId1, int zoneId2) {
   // we define the distance between two zones as the distance between the centers of the zones
   // print zone centers
   return (zoneCenters_.at(zoneId1) - zoneCenters_.at(zoneId2)).norm();
+}
+
+double LocalPlanner::shovelDistanceFromZone(int zoneId) {
+  // get shovel position in world coordinates from tf
+  geometry_msgs::TransformStamped T_sm;
+  // get transform from base to cabin frame
+  try {
+    T_sm = tfBuffer_->lookupTransform("map", "ENDEFFECTOR_CONTACT", ros::Time(0));
+  } catch (tf2::TransformException& ex) {
+    ROS_WARN("%s", ex.what());
+    ros::Duration(1.0).sleep();
+  }
+  // get the position of the shovel in the map frame
+  Eigen::Vector3d w_P_ws = Eigen::Vector3d(T_sm.transform.translation.x, T_sm.transform.translation.y, T_sm.transform.translation.z);
+  // get center of the zone
+  Eigen::Vector2d zoneCenter = zoneCenters_.at(zoneId);
+  // get the distance between the shovel and the zone center
+  double distance = (zoneCenter - w_P_ws.head(2)).norm();
+  return distance;
 }
 
 Eigen::Vector3d LocalPlanner::projectVectorOntoSubspace(Eigen::Vector3d& vector, Eigen::Matrix3Xd& subspaceBasis) {
@@ -1928,6 +1972,8 @@ Eigen::Vector3d LocalPlanner::findShovelDesiredOrientation(Eigen::Vector3d& worl
 
 void LocalPlanner::findDumpPoint() {
   this->updatePlanningMap();
+  this->chooseDumpZone(digZoneId_);
+
   ROS_INFO("[LocalPlanner]: findDumpPoint in zone %d", dumpZoneId_);
   geometry_msgs::TransformStamped T_mba;
   // get transform from base to cabin frame
@@ -1938,6 +1984,7 @@ void LocalPlanner::findDumpPoint() {
     ROS_WARN("%s", ex.what());
     ros::Duration(1.0).sleep();
   }
+
   // from geometric message to tf2 transform
   tf2::Transform T_mba_tf2 = tf2::Transform(
       tf2::Quaternion(T_mba.transform.rotation.x, T_mba.transform.rotation.y, T_mba.transform.rotation.z, T_mba.transform.rotation.w),
@@ -2011,6 +2058,10 @@ void LocalPlanner::findDumpPoint() {
       if (planningMap_.at("excavation_mask", index) == 1) {
         dumpCells++;
       }
+      // do not dump if the cell is already excavated
+      if (planningMap_.at("dug_area", index) == 1) {
+        continue;
+      }
       double heightDiff = elevation - originalElevation;
       if (heightDiff > maxHeightDiff) {
         maxHeightDiff = heightDiff;
@@ -2029,12 +2080,28 @@ void LocalPlanner::findDumpPoint() {
       // pause ros for 0.2 seconds
       // pause for 0.3 seconds
       //      ros::Duration(0.3).sleep();
+      // x posiiton in the back is useful only when dumping in area that will have to be excavated
       double xDumpWeight = xDumpWeight_;
-      // if dumping in the front give priority to position further in the front
-      if (dumpZoneId_ > 2) {
-        xDumpWeight = xDumpWeight_ * -1;
+      double yDumpWeight = yDumpWeight_;
+      if (dumpCells == 0) {
+        // closer to the front excavation area
+        xDumpWeight = -xDumpWeight_;
+        // futher away better, less risk of things falling back in the excavation area
+        yDumpWeight = -yDumpWeight_;
       }
-      double baseScore = x_base * xDumpWeight - abs(y_base - 4.) * yDumpWeight_;
+      //      // if dumping in the back give priority to position further in the front
+      //      if (dumpZoneId_ > 2) {
+      //        xDumpWeight = xDumpWeight_ * -1;
+      //      }
+      // print x and y in base frame
+//      ROS_INFO_STREAM("[LocalPlanner] : findDumpPoint: found dump point at x: " << x_base << " y: " << y_base);
+      double xBaseScore = x_base * xDumpWeight;
+      // assuming enough lateral distance
+      double yBaseScore = abs(y_base) * yDumpWeight_;
+//      ROS_INFO_STREAM("[LocalPlanner] : findDumpPoint: xBaseScore: " << xBaseScore << " yBaseScore: " << yBaseScore);
+
+      double baseScore = xBaseScore + yBaseScore;
+
       double dumpCellScore = dumpCells * dumpCellsWeight_;
       double volumeDirtScore = filterVolume * volumeDirtWeight_;
       //      ROS_INFO_STREAM("[LocalPlanner] : baseScore: " << baseScore << " dumpCellScore: " << dumpCellScore << " volumeDirtScore: "

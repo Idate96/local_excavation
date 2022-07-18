@@ -1,15 +1,15 @@
 #pragma once
 
-#include "excavation_mapping/ExcavationMapping.hpp"
+#include <geometry_msgs/TransformStamped.h>
 #include <grid_map_msgs/GridMap.h>
 #include <tf2_ros/transform_listener.h>
-#include <geometry_msgs/TransformStamped.h>
 #include <eigen3/Eigen/Dense>
+#include "excavation_mapping/ExcavationMapping.hpp"
 #include "loco_m545/common/typedefs.hpp"
 
 namespace local_excavation {
 
-class Trajectory{
+class Trajectory {
  public:
   std::vector<Eigen::Vector3d> positions;
   std::vector<Eigen::Quaterniond> orientations;
@@ -20,10 +20,8 @@ class Trajectory{
 };
 
 class LocalPlanner {
-
  public:
   LocalPlanner(std::unique_ptr<excavation_mapping::ExcavationMapping> excavationMapping);
-
 
   // rectangle in cabin frame centered along the shovel
 
@@ -37,21 +35,22 @@ class LocalPlanner {
   bool updatePlanningMap();
   double computeWorkspaceVolume(int zoneId, std::string targetLayer);
   std::string getTargetDigLayer(int zoneId);
-  grid_map::GridMap getPlanningMap(){return planningMap_;}
+  grid_map::GridMap& getPlanningMap() { return planningMap_; }
   void setLocalMap(grid_map::GridMap& localMap);
 
   // getters
   Eigen::Vector3d getDiggingPoint() const { return diggingPoint_; };
   Eigen::Vector3d getDiggingPointBaseFrame() const;
   Eigen::Vector3d findShovelDesiredOrientation(Eigen::Vector3d& world_diggingPoint, Eigen::Vector3d& diggingDirection);
-  double getRadialOffset(){return radialOffset_;}
-  
+  double getRadialOffset() { return radialOffset_; }
+  double shovelDistanceFromZone(int zoneId);
+
   // get digging direction ?
   // planning
   std::vector<Eigen::Vector3d> getDigStraightTrajectory(Eigen::Vector3d& diggingPoint);
   Eigen::Vector3d findDiggingPointLocalMap();
   Eigen::Vector3d findDiggingPointTrack();
-//  Eigen::Vector3d findDumpPoint();
+  //  Eigen::Vector3d findDumpPoint();
   Eigen::Vector3d findDumpingPointTrack();
 
   double objectiveDistanceAndElevation(grid_map::Position& base_diggingPoint);
@@ -60,16 +59,14 @@ class LocalPlanner {
   void optimizeTrajectory();
   Trajectory computeTrajectory(Eigen::Vector3d& w_P_wd, std::string targetLayer);
   double volumeObjective(Trajectory trajectory);
-  loco_m545::RotationQuaternion findOrientationWorldToShovel(double shovelRollAngle, double shovelPitchAngle,
-                                                                           double shovelYawAngle);
+  loco_m545::RotationQuaternion findOrientationWorldToShovel(double shovelRollAngle, double shovelPitchAngle, double shovelYawAngle);
   Trajectory getDigTrajectoryWorldFrame(Eigen::Vector3d& w_P_wd);
   void getLayerHeightAlongBoom(std::string layer, std::vector<double>& layerValues, std::vector<double>& distanceFromBase);
   double getShovelHeightFromLayer(std::string layer);
 
   // orientation shovel wrt world frame
   Eigen::Quaterniond C_sw(double shovelRollAngle, double shovelPitchAngle, double shovelYawAngle);
-  Eigen::Quaterniond get_R_sw(double shovelRollAngle, double shovelPitchAngle,
-                                                             double shovelYawAngle);
+  Eigen::Quaterniond get_R_sw(double shovelRollAngle, double shovelPitchAngle, double shovelYawAngle);
   double getDumpingScore(int zoneId);
   // dump point stuff
   Eigen::Vector3d getDumpPoint();
@@ -88,8 +85,8 @@ class LocalPlanner {
   void sdfDumpingAreas();
   bool isLateralFrontZoneComplete(int zoneId);
 
-  void setDigTrajectory(Trajectory& trajectory) {digTrajectory_ = trajectory;};
-  Trajectory getDigTrajectory() {return digTrajectory_;};
+  void setDigTrajectory(Trajectory& trajectory) { digTrajectory_ = trajectory; };
+  Trajectory getDigTrajectory() { return digTrajectory_; };
   Trajectory getOptimalTrajectory();
 
   Eigen::Vector3d projectVectorOntoSubspace(Eigen::Vector3d& vector, Eigen::Matrix3Xd& subspaceBasis);
@@ -119,8 +116,11 @@ class LocalPlanner {
   void addPlanningZonesToMap(std::vector<double> values);
   void createPlanningZones();
   void choosePlanningZones();
+  int chooseDigZone();
+  int chooseDumpZone(int digZone);
   void setWorkspacePose(Eigen::Vector3d& workspacePos, Eigen::Quaterniond& workspaceOrientation);
   double distanceZones(int zoneId1, int zoneId2);
+
 
   std::vector<Eigen::Vector2d> getDiggingPatchVertices();
   std::vector<Eigen::Vector2d> getLeftFrontPatch();
@@ -133,14 +133,14 @@ class LocalPlanner {
   std::vector<Eigen::Vector2d> getRightCircularBackSegmentPatch();
   void syncLayers();
 
-  enum DiggingFrame {BASE, MAP};
+  enum DiggingFrame { BASE, MAP };
   DiggingFrame diggingFrame_ = MAP;
 
   // set dig and dump zone
   void setDigZone(int zoneId);
   void setDumpZone(int zoneId);
 
-private:
+ private:
   // sub-map representing the reachable workspace of the robot
   grid_map::GridMap localMap_ = grid_map::GridMap();
   grid_map::GridMap planningMap_ = grid_map::GridMap();
@@ -153,8 +153,8 @@ private:
   // local workspace
   bool isWorkspacePoseSet_ = false;
   // enum for the digging frame, it can be either "BASE" or "map"
-  // this is particularly useful for testing as the digging in base frame eleminates the need to use navigation and mapping to get the robot to the digging point
-
+  // this is particularly useful for testing as the digging in base frame eleminates the need to use navigation and mapping to get the robot
+  // to the digging point
 
   Eigen::Vector3d workspacePos_ = Eigen::Vector3d::Zero();
   Eigen::Quaterniond workspaceOrientation_ = Eigen::Quaterniond::Identity();
@@ -173,6 +173,7 @@ private:
   // then this vector is perpendicular to the two lanes and point in the direction of the second lane
   // this is used to bias the local planner to dump soil against the direction of motion
   Eigen::Vector2d workingDirection_ = Eigen::Vector2d::Zero();
+  void setWorkingDirection(Eigen::Vector2d& workingDirection) { workingDirection_ = workingDirection; }
 
   // ros
   ros::NodeHandle nh_;
@@ -215,12 +216,13 @@ private:
   void createShovelFilter();
   std::vector<Eigen::Vector2d> shovelFilter_;
   // compute volume between shovel pts
-  std::tuple<double, double> computeVolumeBetweenShovelPoints(Eigen::Vector3d& w_posLeftShovel_wl, Eigen::Vector3d& w_posRightShovel_wr, double previousTerrainElevation);
+  std::tuple<double, double> computeVolumeBetweenShovelPoints(Eigen::Vector3d& w_posLeftShovel_wl, Eigen::Vector3d& w_posRightShovel_wr,
+                                                              double previousTerrainElevation);
   // current dig and dump zone
-  int previousDigZoneId_;
-  int previousDumpZoneId_;
-  int dumpZoneId_;
-  int digZoneId_;
+  int previousDigZoneId_ = -1;
+  int previousDumpZoneId_ = -1;
+  int dumpZoneId_ = -1;
+  int digZoneId_ = -1;
   // workspace volume
   double workspaceVolume_;
 
@@ -241,9 +243,11 @@ private:
   double excavationAreaRatio_;
   // selection fo dumping workspace
   double digDumpDistanceWeight_;
-  double xBiasWeight_;
-  double yBiasWeight_;
+  double workingDirWeight_;
   double dumpingZoneDistanceWeight_;
+
+  // current orientation
+  Eigen::Vector2d currentOrientation_;
 
   // dumping spot selection
   double dumpAtHeight_;
@@ -284,4 +288,4 @@ private:
   std::string saveMapPath_;
 };
 
-} // namespace local_excavation
+}  // namespace local_excavation
