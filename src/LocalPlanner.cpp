@@ -185,6 +185,58 @@ bool LocalPlanner::initialize(std::string designMapBag) {
   return true;
 };
 
+void LocalPlanner::reset() {
+  this->createPlanningZones();
+  this->updateWorkingArea();
+  this->updateDugZones();
+  // reset the dig and dump zones
+  digZoneId_ = -1;
+  previousDigZoneId_ = -1;
+  dumpZoneId_ = -1;
+  previousDumpZoneId_ = -1;
+  workspaceVolume_ = 0;
+}
+
+double LocalPlanner::computeWorkspaceVolume(int zoneId, std::string targetLayer) {
+  // compute the volume of the workspace of the zone
+  // by subtracking the elevation layer from the target layer in the area of the zone
+  // obtain the volume by summing the difference and multiplying by the resolution^2
+  double workspaceVolume = 0;
+  ROS_INFO_STREAM("[LocalPlanner]: Computing workspace volume for zone " << zoneId);
+  // iterate over the zone cells
+  grid_map::Polygon zonePolygon = planningZones_.at(zoneId);
+  for (grid_map::PolygonIterator iterator(planningMap_, zonePolygon); !iterator.isPastEnd(); ++iterator) {
+    // get the cell coordinates
+    grid_map::Index index(*iterator);
+    // get the elevation value of the cell
+    double elevation = planningMap_.at("elevation", index);
+    // get the target value of the cell
+    double target = planningMap_.at(targetLayer, index);
+    // subtract the elevation from the target value
+    double difference = target - elevation;
+    // multiply the difference by the resolution^2
+    double volume = difference * planningMap_.getResolution() * planningMap_.getResolution();
+    // add the volume to the total volume
+    workspaceVolume += volume;
+  }
+  ROS_INFO_STREAM("[LocalPlanner]: Workspace volume for zone " << zoneId << " is " << workspaceVolume_);
+  return workspaceVolume;
+}
+
+std::string LocalPlanner::getTargetDigLayer(int zoneId) {
+  // target elevation if zone id is 0, original elevation if zone id is 1 or 2
+  if (zoneId == 0) {
+    return "desired_elevation";
+  } else if (zoneId == 1) {
+    return "original_elevation";
+  } else if (zoneId == 2) {
+    return "original_elevation";
+  } else {
+    ROS_ERROR("[LocalPlanner]: Invalid zone id");
+    return "elevation";
+  }
+}
+
 Eigen::Vector3d LocalPlanner::getDiggingPointBaseFrame() const {
   Eigen::Vector3d diggingPointBaseFrame;
   tf2::doTransform(diggingPoint_, diggingPointBaseFrame, tfBuffer_->lookupTransform("map", "BASE", ros::Time(0)));
@@ -579,7 +631,6 @@ Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd, std::string 
     double workspaceLineVolume = std::get<0>(lineLeftVolume) + std::get<0>(lineRightVolume);
     double otherLineVolume = std::get<1>(lineLeftVolume) + std::get<1>(lineRightVolume);
 
-
     //    std::tuple<double, double> lineVolume = this->computeVolumeBetweenShovelPoints(w_posLeftShovel_wl, w_posRightShovel_wr,
     //    nextDesiredElevation); double workspaceLineVolume_ = std::get<0>(lineVolume); double otherLineVolume_ = std::get<1>(lineVolume);
     //    double totalLineVolume = workspaceLineVolume_ + otherLineVolume_;
@@ -662,9 +713,9 @@ Trajectory LocalPlanner::computeTrajectory(Eigen::Vector3d& w_P_wd, std::string 
   numSteps -= numPointsToRemove;
 
   // if no volume in the workspace return empty trajectory
-    if (digPoints.size() == 0) {
-        return Trajectory();
-    }
+  if (digPoints.size() == 0) {
+    return Trajectory();
+  }
   // get last point of the trajectory
   Eigen::Vector3d w_P_wd_last = digPoints.back();
   // get the orientation of the shovel at the last point
@@ -988,7 +1039,7 @@ bool LocalPlanner::isDigZoneComplete(int zoneId) {
         double deltaOriginalVolume = originalHeightDifference * planningMap_.getResolution() * planningMap_.getResolution();
         double deltaSoilVolume = heightDifference * planningMap_.getResolution() * planningMap_.getResolution();
         volume += deltaSoilVolume;
-        totalVolume += deltaOriginalVolume;
+//        totalVolume += deltaOriginalVolume;
       } else if (zoneId == 1 || zoneId == 2) {
         double desiredElevation = planningMap_.at("original_elevation", index);
         heightDifference = std::max(0.0, elevation - desiredElevation);
@@ -1008,7 +1059,7 @@ bool LocalPlanner::isDigZoneComplete(int zoneId) {
   //  ROS_INFO_STREAM("[LocalPlanner]: Number of missing cells is " << numMissingCells);
   //  ROS_INFO_STREAM("[LocalPlanner]: Volume ratio: " << volume / totalVolume);
   //  ROS_INFO_STREAM("[LocalPlanner]: Number of missing cells ratio: " << (double) numMissingCells / totalNumCells);
-  remainingVolumeRatio_ = volume / totalVolume;
+  remainingVolumeRatio_ = volume / workspaceVolume_;
   // if nan throw error
   if (std::isnan(remainingVolumeRatio_)) {
     ROS_ERROR_STREAM("[LocalPlanner]: Volume ratio is nan");
@@ -1017,7 +1068,7 @@ bool LocalPlanner::isDigZoneComplete(int zoneId) {
   double missingCellsRatio = (double)numMissingCells / totalNumCells;
   ROS_INFO_STREAM("[LocalPlanner]: missing num cells " << numMissingCells << " total num cells " << totalNumCells);
   ROS_INFO_STREAM("[LocalPlanner]: missing cell ratio: " << missingCellsRatio);
-  ROS_INFO_STREAM("[LocalPlanner]: volume ratio: " << remainingVolumeRatio_);
+  ROS_INFO_STREAM("[LocalPlanner]: Volume ratio: " << remainingVolumeRatio_);
   if (digZoneId_ == 0) {
     completed = remainingVolumeRatio_ < volumeThreshold_ || missingCellsRatio < missingCellsThreshold_;
   } else {
@@ -1042,7 +1093,13 @@ bool LocalPlanner::isLocalWorkspaceComplete() {
   this->choosePlanningZones();
   this->updateDugZones();
   //  ROS_INFO_STREAM("[LocalPlanner]: Local workspace is not complete!");
-  return digZoneId_ == -1;
+  if (digZoneId_ == -1) {
+    ROS_INFO_STREAM("[LocalPlanner]: Local workspace is complete!");
+    createNewZones_ = true;
+    return true;
+  } else {
+    return false;
+  }
 }
 
 bool LocalPlanner::isLateralFrontZoneComplete(int zoneId) {
@@ -1121,7 +1178,10 @@ void LocalPlanner::choosePlanningZones() {
       }
     }
   }
-
+  // if the dig zone changed from the previous iteration, then we need to update the current workspace volume
+  if (digZoneId_ != previousDigZoneId_) {
+    workspaceVolume_ = this->computeWorkspaceVolume(digZoneId_, this->getTargetDigLayer(digZoneId_));
+  }
   // safety checks
   if (digZoneId_ != -1) {
     if (dumpZoneId_ != -1) {
@@ -1276,7 +1336,6 @@ void LocalPlanner::resetDigDumpAreas() {
       planningMap_.at("active_dump_zones", index) = 0;
     }
   }
-
   createNewZones_ = true;
 }
 

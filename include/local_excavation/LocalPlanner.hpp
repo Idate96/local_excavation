@@ -29,11 +29,14 @@ class LocalPlanner {
 
   bool initialize(std::string designMapBag);
   bool loadParameters();
+  void reset();
   /*!
    * Update the submap and the global map using the measured elevation map.
    * @return
    */
   bool updatePlanningMap();
+  double computeWorkspaceVolume(int zoneId, std::string targetLayer);
+  std::string getTargetDigLayer(int zoneId);
   grid_map::GridMap getPlanningMap(){return planningMap_;}
   void setLocalMap(grid_map::GridMap& localMap);
 
@@ -214,8 +217,12 @@ private:
   // compute volume between shovel pts
   std::tuple<double, double> computeVolumeBetweenShovelPoints(Eigen::Vector3d& w_posLeftShovel_wl, Eigen::Vector3d& w_posRightShovel_wr, double previousTerrainElevation);
   // current dig and dump zone
+  int previousDigZoneId_;
+  int previousDumpZoneId_;
   int dumpZoneId_;
   int digZoneId_;
+  // workspace volume
+  double workspaceVolume_;
 
   // boolean to indicate whether a reset is needed
   bool createNewZones_ = true;
@@ -262,6 +269,7 @@ private:
   double heightDumpThreshold_;
   // max volume in the shovel
   double maxVolume_;
+
   // index to keep track
   double circularWorkspaceOuterRadius_;
   double circularWorkspaceInnerRadius_;
@@ -274,7 +282,6 @@ private:
   double heightTraversableThreshold_;
   // saving params maps
   std::string saveMapPath_;
-
 };
 
 } // namespace local_excavation
