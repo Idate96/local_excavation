@@ -17,6 +17,7 @@ class Trajectory {
   double relativeHeading = 0;
   double scoopedVolume = -10;
   double workspaceVolume = -10;
+  double length = 0;
 };
 
 class LocalPlanner {
@@ -95,6 +96,7 @@ class LocalPlanner {
 
   // ros publishers
   void publishPlanningMap();
+  void publishMaps();
   void publishMarker(grid_map::Position3 position, std::string frameId) const;
   void publishMarkersTrajectory(std::vector<Eigen::Vector3d> trajectory, std::string frameId) const;
   void publishVector(Eigen::Vector3d position, Eigen::Vector3d direction, std::string frameId) const;

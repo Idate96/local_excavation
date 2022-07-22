@@ -25,7 +25,7 @@ local_excavation:
   x_dump_weight: 1.
   y_dump_weight: 1.
   dump_cells_weight: 0.1
-  height_traversable_threshold: 0.5
+  height_traversable_threshold: 0.75
   bonus_volume: 0.00 # m3
   height_dig_area_threshold: 0.1
   volume_dirt_weight: -1
