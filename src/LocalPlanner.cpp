@@ -699,12 +699,14 @@ namespace local_excavation {
         //  ROS_INFO_STREAM("[LocalPlanner]: heightChange: " << heightChange);
         double horizontalDisplacement = heightChange / tan(diggingPathAngle);
         //  w_P_dd1.head(2) = w_P_dba * horizontalDisplacement;
-        w_P_dd1.head(2) = -w_P_dd1(2) * tan(attitudeAngle) * w_P_dba;
+        w_P_dd1.head(2) = (-w_P_dd1(2) * tan(attitudeAngle)) * w_P_dba;
         //   ROS_INFO_STREAM("[LocalPlanner]: w_P_dd1: " << w_P_dd1.transpose());
         //   ROS_INFO_STREAM("[LocalPlanner]: digging vector in world frame " << w_P_dd1.transpose());
         //   ROS_INFO_STREAM("[LocalPlanner]: horizontal displacement " << horizontalDisplacement);
 
-        Eigen::Vector3d w_P_wd1 = w_P_wd + w_P_dd1;
+        Eigen::Vector3d w_P_wd1 = w_P_wd;
+        w_P_wd1(2) -= heightChange;
+        w_P_wd_off.head(2) = w_P_wd.head(2) - (-w_P_dd1(2) * tan(attitudeAngle)) * w_P_dba;
         Eigen::Quaterniond R_ws_d1 = this->get_R_sw(0, -attitudeAngle, heading);
 
         //  this->publishVector(w_P_wd, w_P_dd1, "map");
@@ -914,7 +916,6 @@ namespace local_excavation {
             }
         }
         if (collisionFreeDigPoints.size() == 0) {
-            ROS_INFO_STREAM("[LocalPlanner]: no collision free points found");
             return Trajectory();
         }
         Eigen::Vector3d w_P_wd_last = collisionFreeDigPoints.back();
@@ -948,8 +949,8 @@ namespace local_excavation {
         std::vector<Eigen::Quaterniond> digOrientationsFused;
         digPointsFused.push_back(w_P_wd_off);
         digOrientationsFused.push_back(R_ws_d);
-        //  digPointsFused.push_back(w_P_wd1);
-        //  digOrientationsFused.push_back(R_ws_d1);
+        digPointsFused.push_back(w_P_wd1);
+        digOrientationsFused.push_back(R_ws_d1);
         // append digPoints vector to digPointsFused
         digPointsFused.insert(digPointsFused.end(), collisionFreeDigPoints.begin(), collisionFreeDigPoints.end() - 1);
         digOrientationsFused.insert(digOrientationsFused.end(), collisionFreeOrientations.begin(),
@@ -1394,7 +1395,7 @@ namespace local_excavation {
         ROS_INFO_STREAM("[LocalPlanner]: Volume ratio: " << remainingVolumeRatio_);
         ROS_INFO_STREAM("#########################");
         if (digZoneId_ == 0) {
-            completed = remainingVolumeRatio_ < volumeThreshold_ || missingCellsRatio < missingCellsThreshold_;
+            completed = remainingVolumeRatio_ < volumeThreshold_ && missingCellsRatio < missingCellsThreshold_;
         } else {
             completed = missingCellsRatio < 1.5 * missingCellsThreshold_;
         }

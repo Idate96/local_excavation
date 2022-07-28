@@ -29,7 +29,7 @@ local_excavation:
   bonus_volume: 0.00 # m3
   height_dig_area_threshold: 0.1
   volume_dirt_weight: -1
-  radial_offset: 0.3
+  radial_offset: 0.0
   vertical_offset: 0.3
   max_dig_depth: 0.3
   dragging_distance: 1.5
