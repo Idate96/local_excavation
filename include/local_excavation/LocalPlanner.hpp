@@ -6,6 +6,15 @@
 #include <eigen3/Eigen/Dense>
 #include "excavation_mapping/ExcavationMapping.hpp"
 #include "loco_m545/common/typedefs.hpp"
+#include <excavator_model/ExcavatorModel.hpp>
+
+// collisions
+#include <collisions/CollisionGroup.hpp>
+#include <collisions_bullet/ColliderManagerBullet.hpp>
+#include "romo/common/CollisionBodyRomo.hpp"
+#include <collisions/CollisionBody.hpp>
+#include "collisions/CollisionBodySimple.hpp"
+#include <collisions_geometry/CollisionGeometryBox.hpp>
 
 namespace local_excavation {
 
@@ -13,7 +22,8 @@ class Trajectory {
  public:
   std::vector<Eigen::Vector3d> positions;
   std::vector<Eigen::Quaterniond> orientations;
-  double distanceFromBase = 0;
+  double startDistanceFromBase = 0;
+  double endDistanceFromBase = 0;
   double relativeHeading = 0;
   double scoopedVolume = -10;
   double workspaceVolume = -10;
@@ -46,7 +56,7 @@ class LocalPlanner {
   double getRadialOffset() { return radialOffset_; }
   double shovelDistanceFromZone(int zoneId);
 
-  // get digging direction ?
+  // get digging direction
   // planning
   std::vector<Eigen::Vector3d> getDigStraightTrajectory(Eigen::Vector3d& diggingPoint);
   Eigen::Vector3d findDiggingPointLocalMap();
@@ -64,6 +74,8 @@ class LocalPlanner {
   Trajectory getDigTrajectoryWorldFrame(Eigen::Vector3d& w_P_wd);
   void getLayerHeightAlongBoom(std::string layer, std::vector<double>& layerValues, std::vector<double>& distanceFromBase);
   double getShovelHeightFromLayer(std::string layer);
+  // this function is important to check for collisions
+  void updateRobotState(excavator_model::ExcavatorState& excavatorState);
 
   // orientation shovel wrt world frame
   Eigen::Quaterniond C_sw(double shovelRollAngle, double shovelPitchAngle, double shovelYawAngle);
@@ -142,6 +154,9 @@ class LocalPlanner {
   void setDigZone(int zoneId);
   void setDumpZone(int zoneId);
 
+  // trajectory helpers
+  std::vector<Eigen::Vector3d>  smoothZCoordinates(std::vector<Eigen::Vector3d>& trajectory);
+
  private:
   // sub-map representing the reachable workspace of the robot
   grid_map::GridMap localMap_ = grid_map::GridMap();
@@ -170,6 +185,16 @@ class LocalPlanner {
   Trajectory digTrajectory_;
   Trajectory optimalDigTrajectory_;
   Trajectory dumpTrajectory_;
+
+  // self collisions
+  excavator_model::ExcavatorModel model_ = excavator_model::ExcavatorModel(0.01); // copy of the model used for planning
+  collisions::CollisionGroup armCollisionGroup_;
+  collisions::CollisionGroup boomCollisionGroup_;
+  collisions::CollisionGroup legCollisionGroup_;
+  collisions_bullet::ColliderManagerBullet colliderManager_;
+  collisions::CollisionGroup armGroup_;
+  bool updateShovelCollisionBody(Eigen::Vector3d w_P_ws, Eigen::Quaterniond C_ws);
+  std::shared_ptr<collisions::CollisionBodySimple> shovelBodyPtr_;
 
   // if we need more than one "coverage lane" to covers the global workspace
   // then this vector is perpendicular to the two lanes and point in the direction of the second lane
@@ -240,6 +265,10 @@ class LocalPlanner {
   // parameters
   // dig trajectory depth
   double maxDigDepth_;
+  double closingZTranslation_;
+  double minDistanceCollision_;
+  // drag shovel angle
+  double draggingAngle_;
   // areas with more than this ratio (dug area / total area) of the total area are considered not active
   double inactiveAreaRatio_;
   double excavationAreaRatio_;
@@ -275,6 +304,8 @@ class LocalPlanner {
   double heightDumpThreshold_;
   // max volume in the shovel
   double maxVolume_;
+  // distance before the shovel attitude is flat against the soil
+  double draggingDistance_;
 
   // index to keep track
   double circularWorkspaceOuterRadius_;
