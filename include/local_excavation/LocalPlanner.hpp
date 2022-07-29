@@ -187,7 +187,7 @@ class LocalPlanner {
   Trajectory dumpTrajectory_;
 
   // self collisions
-  excavator_model::ExcavatorModel model_ = excavator_model::ExcavatorModel(0.01); // copy of the model used for planning
+  excavator_model::ExcavatorModel model_; // copy of the model used for planning
   collisions::CollisionGroup armCollisionGroup_;
   collisions::CollisionGroup boomCollisionGroup_;
   collisions::CollisionGroup legCollisionGroup_;

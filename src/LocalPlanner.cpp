@@ -19,7 +19,7 @@
 namespace local_excavation {
 
     LocalPlanner::LocalPlanner(std::unique_ptr<excavation_mapping::ExcavationMapping> excavationMapping)
-            : excavationMappingPtr_(std::move(excavationMapping)) {
+            : excavationMappingPtr_(std::move(excavationMapping)), model_(0.01) {
         // make a copy of the excavator model (not a reference)
         // initialize the buffer and the listener
         tfBuffer_ = std::make_shared<tf2_ros::Buffer>();
