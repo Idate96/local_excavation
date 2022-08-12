@@ -39,6 +39,6 @@ local_excavation:
   dragging_dirt_distance: 0.1
   dragging_angle: 1.4
   closing_z_translation: 0.8
-  min_distance_collision: 0.5
+  min_distance_collision: 0.7
   target_dig_attitude: 0.52
   target_dig_dirt_attitude: 1.4
