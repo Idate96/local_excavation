@@ -13,7 +13,7 @@ local_excavation:
   dump_height: 1.0 # in meters
   volume_dirt_threshold: 3.0
   height_dirt_threshold: 0.1
-  height_dump_threshold: 2.0
+  height_dump_threshold: 1.7
   volume_threshold: 0.03 # in m^3, parameter that controls when the workspace is done
   height_threshold: 0.08 # in meters, parameter that controls when a cell not considered done
   missing_cells_threshold: 0.05 # fraction, parameter that controls when the workspace is done

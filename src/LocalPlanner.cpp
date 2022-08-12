@@ -246,7 +246,7 @@ namespace local_excavation {
       pose.orientation.w = msg.poses[i].orientation.w;
       path.push_back(pose);
     }
-    ROS_INFO_STREAM("[LocalPlanner]: Received global path with " << path.size() << " poses");
+//    ROS_INFO_STREAM("[LocalPlanner]: Received global path with " << path.size() << " poses");
     globalPath_ = path;
   }
 
@@ -1415,7 +1415,7 @@ namespace local_excavation {
     // interpolate the orientation of the shovel
     double stepSizePitchOrientation = (draggingAngle_ - attitudeAngle) / (numPointsToReachDraggingDistance - 1);
     double currentPitchOrientation = attitudeAngle;
-    ROS_INFO_STREAM("[LocalPlanner]: **** attitude angle " << attitudeAngle);
+//    ROS_INFO_STREAM("[LocalPlanner]: **** attitude angle " << attitudeAngle);
     for (size_t i = 0; i < smoothedDigPoints.size(); i++) {
       Eigen::Quaterniond R_ws_d = this->get_R_sw(0, -currentPitchOrientation, heading);
       digOrientations.push_back(R_ws_d);
@@ -3144,9 +3144,9 @@ void LocalPlanner::computeSdf(std::string targetLayer) {
         // print scores
         //      ROS_INFO_STREAM("[LocalPlanner]: findDumpPoint: baseScore: " << baseScore << " dumpCellScore: " << dumpCellScore);
         double pointScore = baseScore + dumpCellScore + volumeDirtScore;
-        // print score
-              ROS_INFO_STREAM("[LocalPlanner]: findDumpPoint: pointScore: " << pointScore);
-        //      ROS_INFO_STREAM("[LocalPlanner]: findDumpPoint: found dump point at " << x_base  << " with weight " << xDumpWeight_ << " and
+//        // print score
+//              ROS_INFO_STREAM("[LocalPlanner]: findDumpPoint: pointScore: " << pointScore);
+//              ROS_INFO_STREAM("[LocalPlanner]: findDumpPoint: found dump point at " << x_base  << " with weight " << xDumpWeight_ << " and " << yDumpWeight_);
         //      score " << pointScore); ROS_INFO_STREAM("[LocalPlanner]: findDumpPoint: dump cells: " << dumpCells);
         if (pointScore > digPointBestValue) {
           //        ROS_INFO_STREAM("[Localplanner]: setting best dump point to " << x_base);
