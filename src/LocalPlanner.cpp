@@ -2336,7 +2336,7 @@ namespace local_excavation {
       Eigen::Vector3d p_mp = Eigen::Vector3d(position.x(), position.y(), 0.0);
       // tranform position from map frame to waypoint frame
       Eigen::Vector3d w_position_wp = q_mw.inverse() * (p_mp - t_mw);
-      if ((w_position_wp.x() > circularWorkspaceOuterRadius_ || (w_position_wp.x() > 0) && w_position_wp.norm() > dumpingZoneOuterRadius_) &&
+      if ((w_position_wp.x() > circularWorkspaceOuterRadius_ || (w_position_wp.x() > 0) && w_position_wp.norm() > 1.2 * dumpingZoneOuterRadius_) &&
           planningMap_.at("current_excavation_mask", index) == 1) {
         planningMap_.at("current_excavation_mask", index) = 0;
       }
