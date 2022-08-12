@@ -1,0 +1,4 @@
+int32 dig_zone
+int32 dump_zone
+---
+bool success

@@ -8,6 +8,9 @@ project(local_excavation)
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
 set(CATKIN_DEPENDENCIES
+        message_generation
+        message_runtime
+        std_msgs
         grid_map_ros
         grid_map_msgs
         grid_map_cv
@@ -26,6 +29,8 @@ set(CATKIN_DEPENDENCIES
         geometry_msgs
         tf2_ros
         tf2
+        m545_planner_msgs
+        se2_planning
         )
 
 set(CATKIN_DEPENDS
@@ -43,6 +48,18 @@ find_package(catkin REQUIRED
 find_package(Eigen3 REQUIRED)
 find_package(LAPACK REQUIRED)
 find_package(OpenCV)
+
+
+add_service_files(
+        DIRECTORY srv
+)
+
+
+generate_messages(
+        DEPENDENCIES
+        geometry_msgs
+        std_msgs # Or other packages containing msgs
+)
 
 ###################################
 ## catkin specific configuration ##

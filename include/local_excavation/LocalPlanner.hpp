@@ -7,6 +7,10 @@
 #include "excavation_mapping/ExcavationMapping.hpp"
 #include "loco_m545/common/typedefs.hpp"
 #include <excavator_model/ExcavatorModel.hpp>
+#include "local_excavation/DigDumpSrv.h"
+#include "m545_planner_msgs/M545Footprint.hpp"
+#include <geometry_msgs/PoseArray.h>
+#include "se2_planning/State.hpp"
 
 // collisions
 #include <collisions/CollisionGroup.hpp>
@@ -18,6 +22,20 @@
 
 namespace local_excavation {
 
+inline Eigen::Matrix<double, 5, 2> footprintAtState(const se2_planning::SE2state& baseStateMapFrame, const Eigen::Matrix<double, 5, 2>& footprintBaseFrame) {
+  // first rotate the footprint according to the state yaw and then translate it according to the state position
+  double yaw = baseStateMapFrame.yaw_;
+  // construct rotation matrix
+  Eigen::Matrix2d rot;
+  rot(0, 0) = cos(yaw);
+  rot(0, 1) = -sin(yaw);
+  rot(1, 0) = sin(yaw);
+  rot(1, 1) = cos(yaw);
+  Eigen::Vector2d baseStateMapFrame_vec(baseStateMapFrame.x_, baseStateMapFrame.y_);
+  // apply rotation and translation
+  Eigen::Matrix<double, 2, 5> footprintMapFrame = (rot * footprintBaseFrame.transpose()).colwise() + baseStateMapFrame_vec;
+  return footprintMapFrame.transpose();
+}
 class Trajectory {
  public:
   std::vector<Eigen::Vector3d> positions;
@@ -28,6 +46,7 @@ class Trajectory {
   double scoopedVolume = -10;
   double workspaceVolume = -10;
   double length = 0;
+  std::vector<double> stepVolumes;
 };
 
 class LocalPlanner {
@@ -65,10 +84,13 @@ class LocalPlanner {
   Eigen::Vector3d findDumpingPointTrack();
 
   double objectiveDistanceAndElevation(grid_map::Position& base_diggingPoint);
+  void computeSdf(std::string targetLayer);
 
   std::vector<Eigen::Vector3d> digTrajectory(Eigen::Vector3d& base_digPosition);
   void optimizeTrajectory();
-  Trajectory computeTrajectory(Eigen::Vector3d& w_P_wd, std::string targetLayer);
+  Trajectory computeTrajectory(Eigen::Vector3d& w_P_wd, std::string targetLayer, int zoneId);
+  Trajectory computeDigTrajectory(Eigen::Vector3d& w_P_wd, std::string targetLayer);
+  Trajectory computeDirtTrajectory(Eigen::Vector3d& w_P_wd, std::string targetLayer);
   double volumeObjective(Trajectory trajectory);
   loco_m545::RotationQuaternion findOrientationWorldToShovel(double shovelRollAngle, double shovelPitchAngle, double shovelYawAngle);
   Trajectory getDigTrajectoryWorldFrame(Eigen::Vector3d& w_P_wd);
@@ -87,6 +109,7 @@ class LocalPlanner {
   bool findDiggingPoint();
   bool findRandomDiggingPoint();
   void findDumpPoint();
+  bool foundDumpPoint_ = false;
   double getVolume();
   // zones functions
   bool isDigZoneComplete(int zoneId);
@@ -97,6 +120,7 @@ class LocalPlanner {
   // select dumping zone based on this score
   void sdfDumpingAreas();
   bool isLateralFrontZoneComplete(int zoneId);
+  std::vector<int> completedArea_ = {0, 0, 0, 0, 0};
 
   void setDigTrajectory(Trajectory& trajectory) { digTrajectory_ = trajectory; };
   Trajectory getDigTrajectory() { return digTrajectory_; };
@@ -153,9 +177,11 @@ class LocalPlanner {
   // set dig and dump zone
   void setDigZone(int zoneId);
   void setDumpZone(int zoneId);
+  void setWaypointIndex(int index) { waypointIndex_ = index; }
 
   // trajectory helpers
   std::vector<Eigen::Vector3d>  smoothZCoordinates(std::vector<Eigen::Vector3d>& trajectory);
+  void setWorkingDirection(Eigen::Vector2d& workingDirection) { workingDirection_ = workingDirection; }
 
  private:
   // sub-map representing the reachable workspace of the robot
@@ -170,6 +196,7 @@ class LocalPlanner {
   // local workspace
   bool isWorkspacePoseSet_ = false;
   // enum for the digging frame, it can be either "BASE" or "map"
+  // this is particularly useful for testing as the digging in base frame eleminates the need to use navigation and mapping to get the robot
   // this is particularly useful for testing as the digging in base frame eleminates the need to use navigation and mapping to get the robot
   // to the digging point
 
@@ -200,7 +227,6 @@ class LocalPlanner {
   // then this vector is perpendicular to the two lanes and point in the direction of the second lane
   // this is used to bias the local planner to dump soil against the direction of motion
   Eigen::Vector2d workingDirection_ = Eigen::Vector2d::Zero();
-  void setWorkingDirection(Eigen::Vector2d& workingDirection) { workingDirection_ = workingDirection; }
 
   // ros
   ros::NodeHandle nh_;
@@ -222,6 +248,25 @@ class LocalPlanner {
   ros::Publisher polygonPublisher_;
   ros::Publisher shovelFilterPublisher_;
   ros::Publisher workingAreaPublisher_;
+
+  ros::Subscriber footprintSubscriber_;
+  void footprintCallback(const m545_planner_msgs::M545FootprintRos& msg);
+  boost::shared_mutex footprintMutex_;
+  Eigen::Matrix<double, 5, 2> footprint_;
+
+  ros::Subscriber globalPathSub_;
+  void globalPathCallback(const geometry_msgs::PoseArray& msg);
+  std::vector<geometry_msgs::Pose> globalPath_;
+  int waypointIndex_ = 0;
+  void setExcavationMaskAtFutureStates();
+
+  std::string pathTopic_;
+  std::string footprintTopic_;
+
+  // make a ros service to select dig and dump zones
+  ros::ServiceServer digAndDumpService_;
+  bool digAndDumpServiceCallback(DigDumpSrv::Request& request, DigDumpSrv::Response& response);
+  bool autoZoneSelection_ = true;
 
   // transform listener
   std::shared_ptr<tf2_ros::Buffer> tfBuffer_;
@@ -252,6 +297,7 @@ class LocalPlanner {
   int digZoneId_ = -1;
   // workspace volume
   double workspaceVolume_;
+  std::vector<double> digZonesVolume_;
 
   // boolean to indicate whether a reset is needed
   bool createNewZones_ = true;
@@ -265,8 +311,11 @@ class LocalPlanner {
   // parameters
   // dig trajectory depth
   double maxDigDepth_;
+  double maxDigDirtDepth_;
   double closingZTranslation_;
   double minDistanceCollision_;
+  double targetDigAttitude_;
+  double targetDigDirtAttitude_;
   // drag shovel angle
   double draggingAngle_;
   // areas with more than this ratio (dug area / total area) of the total area are considered not active
@@ -283,6 +332,7 @@ class LocalPlanner {
   // dumping spot selection
   double dumpAtHeight_;
   double radialOffset_;
+  double radialDirtOffset_;
   double verticalOffset_;
   double heightPrecision_;
   double xDumpWeight_;
@@ -306,6 +356,7 @@ class LocalPlanner {
   double maxVolume_;
   // distance before the shovel attitude is flat against the soil
   double draggingDistance_;
+  double draggingDirtDistance_;
 
   // index to keep track
   double circularWorkspaceOuterRadius_;

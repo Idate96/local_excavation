@@ -14,25 +14,31 @@ local_excavation:
   volume_dirt_threshold: 3.0
   height_dirt_threshold: 0.1
   height_dump_threshold: 2.0
-  volume_threshold: 0.01 # in m^3, parameter that controls when the workspace is done
-  height_threshold: 0.05 # in meters, parameter that controls when a cell not considered done
-  missing_cells_threshold: 0.03 # fraction, parameter that controls when the workspace is done
+  volume_threshold: 0.03 # in m^3, parameter that controls when the workspace is done
+  height_threshold: 0.08 # in meters, parameter that controls when a cell not considered done
+  missing_cells_threshold: 0.05 # fraction, parameter that controls when the workspace is done
   inactive_area_ratio: 0.95
   active_area_ratio: 0.05
   dumping_distance_weight: 0.1
   dig_dump_distance_weight: 1.
+  working_dir_weight: 1.0
   excavation_area_ratio: 0.1
   x_dump_weight: 1.
   y_dump_weight: 1.
   dump_cells_weight: 0.1
-  height_traversable_threshold: 0.75
+  height_traversable_threshold: 1.5
   bonus_volume: 0.00 # m3
   height_dig_area_threshold: 0.1
   volume_dirt_weight: -1
   radial_offset: 0.0
+  radial_dirt_offset: 1.5
   vertical_offset: 0.3
   max_dig_depth: 0.3
+  max_dig_dirt_depth: 0.7
   dragging_distance: 1.5
-  dragging_angle: 1.0
+  dragging_dirt_distance: 0.1
+  dragging_angle: 1.4
   closing_z_translation: 0.8
-  min_distance_collision: 0.3
+  min_distance_collision: 0.5
+  target_dig_attitude: 0.52
+  target_dig_dirt_attitude: 1.4

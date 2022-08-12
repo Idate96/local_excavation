@@ -30,5 +30,10 @@
   <depend>grid_map_visualization</depend>
   <depend>liblapack-dev</depend>
   <depend>geometry_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>se2_planning</depend>
+  <depend>m545_planner_msgs</depend>
+  <depend>message_generation</depend>
+  <depend>message_runtime</depend>
 
 </package>
