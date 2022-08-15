@@ -2,10 +2,10 @@ local_excavation:
   height_precision: 0.05 # meters
   outer_digging_radius: 7.0 # in meters
   inner_digging_radius: 5.0 # meters
-  outer_dumping_radius:  5.7
-  inner_dumping_radius:  5.0
+  outer_dumping_radius: 5.7
+  inner_dumping_radius: 5.0
   min_distance_shovel_to_base: 2 # in meters
-  workspace_angle: 1.0 # radians
+  workspace_angle: 1.1 # radians
   max_volume: 0.9 # soil volume in m^3
   volume_weight: 1
   distance_weight: 0.2
@@ -42,3 +42,6 @@ local_excavation:
   min_distance_collision: 0.7
   target_dig_attitude: 0.52
   target_dig_dirt_attitude: 1.4
+  target_height_diff_threshold: 0.3
+  min_scoop_volume: 0.05
+  low_volume_scoop_attempts: 3

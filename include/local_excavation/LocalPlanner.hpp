@@ -120,7 +120,11 @@ class LocalPlanner {
   // select dumping zone based on this score
   void sdfDumpingAreas();
   bool isLateralFrontZoneComplete(int zoneId);
-  std::vector<int> completedArea_ = {0, 0, 0, 0, 0};
+  std::vector<int> completedDumpAreas_ = {0, 0, 0, 0};
+  std::vector<int> completedDigAreas_ = {0, 0, 0};
+  void checkScoopedVolume(double volume);
+  double minScoopVolume_;
+  int lowVolumeScoopAttempts_;
 
   void setDigTrajectory(Trajectory& trajectory) { digTrajectory_ = trajectory; };
   Trajectory getDigTrajectory() { return digTrajectory_; };
@@ -368,8 +372,11 @@ class LocalPlanner {
   int currentTrackId = 0;
   // param to mark working areas that you can't step over
   double heightTraversableThreshold_;
+  double targetHeightDiffThreshold_;
   // saving params maps
   std::string saveMapPath_;
+  // recovery behaviour
+  int lowVolumeScoopCounter_ = 0;
 };
 
 }  // namespace local_excavation

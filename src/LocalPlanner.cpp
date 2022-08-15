@@ -196,8 +196,11 @@ namespace local_excavation {
                   nh_.param<double>("/local_excavation/radial_dirt_offset", radialDirtOffset_, 0.3) &&
                   nh_.param<double>("/local_excavation/dragging_dirt_distance", draggingDirtDistance_, 0.3) &&
                   nh_.param<std::string>("/m545_planner_node/footprint_topic", footprintTopic_, "/footprint") &&
-                  nh_.param<std::string>("path_topic", pathTopic_, "/coverage/poses");
-
+                  nh_.param<std::string>("path_topic", pathTopic_, "/coverage/poses") &&
+                  nh_.param<double>("/local_excavation/target_height_diff_threshold", targetHeightDiffThreshold_,
+                                    0.3) &&
+                  nh_.param<double>("/local_excavation/min_scoop_volume", minScoopVolume_, 0.1) &&
+                  nh_.param<int>("/local_excavation/low_volume_scoop_attempts", lowVolumeScoopAttempts_, 3);
     nh_.param<std::string>("/local_excavation/save_map_path", saveMapPath_,
                            ros::package::getPath("local_excavation") + "/maps/latest.bag");
     if (!loaded) {
@@ -274,7 +277,13 @@ namespace local_excavation {
     for (auto waypointIdx = waypointIndex_ + 1; waypointIdx < globalPath_.size(); waypointIdx++) {
       ROS_INFO_STREAM("[LocalPlanner]: Set excavation mask at waypoint " << waypointIdx);
       // extract x, y and yaw from the pose
-      geometry_msgs::Pose nextWaypoint = globalPath_[waypointIdx];
+      geometry_msgs::Pose nextWaypoint;
+      try {
+        nextWaypoint = globalPath_.at(waypointIdx);
+      } catch (const std::out_of_range& oor) {
+        ROS_ERROR_STREAM("[LocalPlanner]: Out of range exception: " << oor.what());
+        return;
+      }
       double roll_b, pitch_b, yaw_b;
       tf2::Quaternion R_mba_q =
           tf2::Quaternion(nextWaypoint.orientation.x, nextWaypoint.orientation.y, nextWaypoint.orientation.z,
@@ -1741,7 +1750,7 @@ namespace local_excavation {
 //        ROS_INFO_STREAM("[LocalPlanner]: Volume " << trajectory.workspaceVolume);
         double objective = this->volumeObjective(trajectory);
 //        ROS_INFO_STREAM("[LocalPlanner]: Objective " << objective);
-        if (objective > maxObjective) {
+        if (objective > maxObjective && trajectory.workspaceVolume > 0.02) {
           bestTrajectory = trajectory;
           maxObjective = objective;
         }
@@ -1761,9 +1770,11 @@ namespace local_excavation {
     ROS_INFO_STREAM("[LocalPlanner]: Best trajectory has volume cost " << workspaceCost);
     ROS_INFO_STREAM("[LocalPlanner]: Best trajectory has distance weight " << distanceWeight);
     ROS_INFO_STREAM("[LocalPlanner]: Best trajectory has heading weight " << headingWeight);
+    ROS_INFO_STREAM("[LocalPlanner]: Best trajectory has length " << bestTrajectory.positions.size());
     // raise a warning if the found trajectory is empty
     if (bestTrajectory.positions.size() == 0) {
-      ROS_WARN_STREAM("[LocalPlanner]: could not find a valid trajectory!");
+      completedDigAreas_.at(digZoneId_) = 1;
+      ROS_WARN_STREAM("[LocalPlanner]: could not find a valid trajectory in digZoneId_ " << digZoneId_);
     }
     // print expected volume for the best trajectory
     ROS_INFO_STREAM(
@@ -1848,6 +1859,9 @@ namespace local_excavation {
     if (zoneId < 0 || zoneId > 2) {
       ROS_ERROR_STREAM("[LocalPlanner]: Invalid zone id " << zoneId);
       return false;
+    }
+    if (completedDigAreas_.at(zoneId) == 1) {
+      return true;
     }
     // print height theshold
     ROS_INFO_STREAM("[LocalPlanner]: height threshold " << heightThreshold_);
@@ -1971,6 +1985,20 @@ namespace local_excavation {
     return completed;
   }
 
+  void LocalPlanner::checkScoopedVolume(double volume) {
+    if (volume < minScoopVolume_){
+      ROS_WARN("[LocalPlanner]: Scooped volume is less than minimum threshold volume");
+      lowVolumeScoopCounter_ += 1;
+    } else {
+      lowVolumeScoopCounter_ = 0;
+    }
+    if (lowVolumeScoopCounter_ > lowVolumeScoopAttempts_){
+      ROS_WARN("[LocalPlanner]: Scooped volume is less than minimum threshold volume for too long, dig zone is completed");
+      lowVolumeScoopCounter_ = 0;
+      completedDigAreas_.at(digZoneId_) = 1;
+    }
+  }
+
   bool LocalPlanner::isLocalWorkspaceComplete() {
     // if both dig zone is -1 then the local workspace is complete
     // time each step with chrono
@@ -2088,7 +2116,7 @@ namespace local_excavation {
       double dumpingScore = std::numeric_limits<double>::max();
       for (int i = 1; i < 5; i++) {
         if (i != digZoneId) {
-          bool zoneActive = this->isZoneActive(i, false) && not completedArea_.at(i);
+          bool zoneActive = this->isZoneActive(i, false) && not completedDumpAreas_.at(i - 1);
           ROS_INFO_STREAM("[LocalPlanner]: Dumping Zone " << i << " is active: " << zoneActive);
           if (zoneActive && digZoneId != -1) {
             double zoneDumpingScore = this->getDumpingScore(i);
@@ -2291,10 +2319,13 @@ namespace local_excavation {
       // get the elevation of the point
       double elevation = planningMap_.at("elevation", index);
       double desiredElevation = planningMap_.at("desired_elevation", index);
+      double originalElevation = planningMap_.at("original_elevation", index);
       double heightDifference = std::max(0.0, elevation - desiredElevation);
+      double heightOriginalDifference = std::max(0.0, originalElevation - desiredElevation);
       int toBeDugArea = planningMap_.at("current_excavation_mask", index);
-      if (heightDifference < heightThreshold_ && toBeDugArea == -1) {
+      if (heightDifference < heightThreshold_ && heightOriginalDifference > targetHeightDiffThreshold_ && toBeDugArea == -1) {
         planningMap_.at("dug_area", index) = 1;
+        planningMap_.at("working_area", index) = 1;
       }
     }
   }
@@ -2450,7 +2481,10 @@ void LocalPlanner::computeSdf(std::string targetLayer) {
     // on its back-left or back-right. It should do so in the opposite direction of where it's gonna drive next.
     // dot product between eigen vectors w_zoneCenter_bc and workingDirection_
     // the least the better
-    double scoreWorkingDir = - workingDirWeight_ * workingDirection_.dot(b_zoneCenter_bc_2d);
+    // transform the working direction in base frame
+    tf2::Vector3 b_workingDirection_bc = T_bam_tf2 * tf2::Vector3(workingDirection_.x() + T_mba.transform.translation.x, workingDirection_.y() + T_mba.transform.translation.y, 0.0);
+    Eigen::Vector2d b_workingDirection_bc_2d(b_workingDirection_bc.x(), b_workingDirection_bc.y());
+    double scoreWorkingDir = workingDirWeight_ * b_workingDirection_bc_2d.dot(b_zoneCenter_bc_2d);
     double scoreLocalDistance = digDumpDistanceWeight_ * this->shovelDistanceFromZone(zoneId);
     score += scoreWorkingDir + scoreLocalDistance + scoreGlocalDistance;
     ROS_INFO_STREAM("[LocalPlanner]: dumping score for zone " << zoneId << " is " << score);
@@ -2471,9 +2505,13 @@ void LocalPlanner::computeSdf(std::string targetLayer) {
     planningZones_.clear();
     zoneCenters_.clear();
     // reset vector completedAreas to all zeros
-    completedArea_.clear();
-    for (int i = 0; i < 5; i++) {
-      completedArea_.push_back(0);
+    completedDumpAreas_.clear();
+    for (int i = 0; i < 4; i++) {
+      completedDumpAreas_.push_back(0);
+    }
+    completedDigAreas_.clear();
+    for (int i = 0; i < 3; i++) {
+      completedDigAreas_.push_back(0);
     }
 
     // get vertices for the zones
@@ -3160,9 +3198,9 @@ void LocalPlanner::computeSdf(std::string targetLayer) {
     // raise a warning  if the dump point is not found
     if (iterator.isPastEnd() && minSignedBaseDistance == 0) {
       foundDumpPoint_ = false;
-      completedArea_.at(dumpZoneId_) = 1;
+      completedDumpAreas_.at(dumpZoneId_ - 1) = 1;
       // if not all dump areas are completed (1), then continue unselect dumping zone
-      if (completedArea_.at(1) == 1 && completedArea_.at(2) == 1 && completedArea_.at(3) == 1 && completedArea_.at(4) == 1) {
+      if (completedDumpAreas_.at(0) == 1 && completedDumpAreas_.at(1) == 1 && completedDumpAreas_.at(2) == 1 && completedDumpAreas_.at(3) == 1) {
         dumpZoneId_ = -1;
         ROS_WARN("[LocalPlanner]: findDumpPoint: no available dumping spots");
       } else {
