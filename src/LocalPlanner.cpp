@@ -292,7 +292,9 @@ namespace local_excavation {
       se2_planning::SE2state state(nextWaypoint.position.x, nextWaypoint.position.y,
                                    yaw_b);
       // get the footprint expressed in the world frame
-      auto w_footprint = footprintAtState(state, footprint_);
+      // the inflation factor is useful to prevent the dirt from accumulating close to the tracks
+      double inflationFactor = 1.2;
+      auto w_footprint = footprintAtState(state, footprint_, inflationFactor);
       // make a gridmap poligon iterator and mark the points inside the footprint in the "current_excavation_mask" with value 0
       grid_map::Polygon polygon;
       for (int i = 0; i < 4; i++) {
@@ -1976,6 +1978,19 @@ namespace local_excavation {
     ROS_INFO_STREAM("#########################");
     if (digZoneId_ == 0) {
       completed = remainingVolumeRatio_ < volumeThreshold_ && missingCellsRatio < missingCellsThreshold_;
+      if (completed) {
+        // if the map remainingVolumeRatio_ does not have a value for the current waypointIndex_, set it to the current
+        // remainingVolumeRatio_
+        if (remainingVolumeRatios_.find(waypointIndex_) == remainingVolumeRatios_.end()) {
+          remainingVolumeRatios_.insert(std::pair<int, double>(waypointIndex_, remainingVolumeRatio_));
+        }
+        if (remainingVolume_.find(waypointIndex_) == remainingVolume_.end()) {
+          remainingVolume_.insert(std::pair<int, double>(waypointIndex_, volume));
+        }
+        if (remainingCellsRatio_.find(waypointIndex_) == remainingCellsRatio_.end()) {
+          remainingCellsRatio_.insert(std::pair<int, double>(waypointIndex_, missingCellsRatio));
+        }
+      }
     } else {
       completed = missingCellsRatio < missingCellsThreshold_;
     }
@@ -2040,6 +2055,9 @@ namespace local_excavation {
     } else {
       return false;
     }
+    // create a new thread and call the function logWorkspaceData
+    std::thread logWorkspaceDataThread(std::bind(&LocalPlanner::logWorkspaceData, this));
+    logWorkspaceDataThread.detach();
   }
 
   bool LocalPlanner::isLateralFrontZoneComplete(int zoneId) {
@@ -4105,4 +4123,18 @@ void LocalPlanner::computeSdf(std::string targetLayer) {
     desiredPosePublisher_.publish(pose);
   }
 
+  void LocalPlanner::logWorkspaceData(){
+    // log workspace data
+    std::ofstream workspace_data;
+    // get ros package path
+    std::string package_path = ros::package::getPath("local_excavation");
+    std::string file_path = package_path + "/log/workspace_data.txt";
+    workspace_data.open(file_path, std::ios::app);
+    // save the maps remainingVolumeRatio_, reaminingVolume_, remainingCellsRatio_ to the file
+    // with the format waypointIndex, remainingVolumeRatio, remainingVolume, remainingCellsRatio
+    for (int i = 0; i < remainingVolumeRatios_.size(); i++) {
+      workspace_data << i << "," << remainingVolumeRatios_[i] << "," << remainingVolume_[i] << "," << remainingCellsRatio_[i] << std::endl;
+    }
+    workspace_data.close();
+  }
 }  // namespace local_excavation

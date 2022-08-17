@@ -22,7 +22,7 @@
 
 namespace local_excavation {
 
-inline Eigen::Matrix<double, 5, 2> footprintAtState(const se2_planning::SE2state& baseStateMapFrame, const Eigen::Matrix<double, 5, 2>& footprintBaseFrame) {
+inline Eigen::Matrix<double, 5, 2> footprintAtState(const se2_planning::SE2state& baseStateMapFrame, const Eigen::Matrix<double, 5, 2>& footprintBaseFrame, double inflationFactor) {
   // first rotate the footprint according to the state yaw and then translate it according to the state position
   double yaw = baseStateMapFrame.yaw_;
   // construct rotation matrix
@@ -32,8 +32,13 @@ inline Eigen::Matrix<double, 5, 2> footprintAtState(const se2_planning::SE2state
   rot(1, 0) = sin(yaw);
   rot(1, 1) = cos(yaw);
   Eigen::Vector2d baseStateMapFrame_vec(baseStateMapFrame.x_, baseStateMapFrame.y_);
+  // apply inflation factor
+  Eigen::Matrix<double, 5, 2> inflatedFootprintBaseFrame;
+  for (int i = 0; i < 5; i++){
+    inflatedFootprintBaseFrame.row(i) = inflationFactor * footprintBaseFrame.row(i);
+  }
   // apply rotation and translation
-  Eigen::Matrix<double, 2, 5> footprintMapFrame = (rot * footprintBaseFrame.transpose()).colwise() + baseStateMapFrame_vec;
+  Eigen::Matrix<double, 2, 5> footprintMapFrame = (rot * inflatedFootprintBaseFrame.transpose()).colwise() + baseStateMapFrame_vec;
   return footprintMapFrame.transpose();
 }
 class Trajectory {
@@ -373,6 +378,12 @@ class LocalPlanner {
   // param to mark working areas that you can't step over
   double heightTraversableThreshold_;
   double targetHeightDiffThreshold_;
+  // workspace logging
+  // dictionary with key the waypoint index and as value the remaining volume ratio
+  std::map<int, double> remainingVolumeRatios_;
+  std::map<int, double> remainingVolume_;
+  std::map<int, double> remainingCellsRatio_;
+  void logWorkspaceData();
   // saving params maps
   std::string saveMapPath_;
   // recovery behaviour
