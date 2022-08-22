@@ -200,7 +200,8 @@ namespace local_excavation {
                   nh_.param<double>("/local_excavation/target_height_diff_threshold", targetHeightDiffThreshold_,
                                     0.3) &&
                   nh_.param<double>("/local_excavation/min_scoop_volume", minScoopVolume_, 0.1) &&
-                  nh_.param<int>("/local_excavation/low_volume_scoop_attempts", lowVolumeScoopAttempts_, 3);
+                  nh_.param<int>("/local_excavation/low_volume_scoop_attempts", lowVolumeScoopAttempts_, 3) &&
+                  nh_.param<double>("/local_excavation/footprint_inflation", footprintInflation_, 1.3);
     nh_.param<std::string>("/local_excavation/save_map_path", saveMapPath_,
                            ros::package::getPath("local_excavation") + "/maps/latest.bag");
     if (!loaded) {
@@ -293,8 +294,7 @@ namespace local_excavation {
                                    yaw_b);
       // get the footprint expressed in the world frame
       // the inflation factor is useful to prevent the dirt from accumulating close to the tracks
-      double inflationFactor = 1.2;
-      auto w_footprint = footprintAtState(state, footprint_, inflationFactor);
+      auto w_footprint = footprintAtState(state, footprint_, footprintInflation_);
       // make a gridmap poligon iterator and mark the points inside the footprint in the "current_excavation_mask" with value 0
       grid_map::Polygon polygon;
       for (int i = 0; i < 4; i++) {
@@ -1866,7 +1866,14 @@ namespace local_excavation {
       return true;
     }
     // print height theshold
-    ROS_INFO_STREAM("[LocalPlanner]: height threshold " << heightThreshold_);
+    double heightThreshold;
+    if (zoneId == 0) {
+      heightThreshold = heightThreshold_;
+    } else {
+      heightThreshold = heightDirtThreshold_;
+    }
+
+    ROS_INFO_STREAM("[LocalPlanner]: height threshold " << heightThreshold);
     bool completed = false;
     // sum up all the remaining volume in the digZone and check two conditions:
     // 1. the sum is smaller than the volumeTreshold
@@ -1914,7 +1921,7 @@ namespace local_excavation {
           }
           //        ROS_INFO_STREAM("[LocalPlanner]: height difference " << heightDifference);
           //        ROS_INFO_STREAM("[LocalPlanner]: original height difference " << originalHeightDifference);
-          if (heightDifference > heightThreshold_) {
+          if (heightDifference > heightThreshold) {
             numMissingCells++;
           }
           double deltaOriginalVolume =
@@ -1979,6 +1986,8 @@ namespace local_excavation {
     if (digZoneId_ == 0) {
       completed = remainingVolumeRatio_ < volumeThreshold_ && missingCellsRatio < missingCellsThreshold_;
       if (completed) {
+        // sometimes due to noise of the sensors a zone gets dug multiple times even though it's finished.
+        completedDigAreas_.at(zoneId) = 1;
         // if the map remainingVolumeRatio_ does not have a value for the current waypointIndex_, set it to the current
         // remainingVolumeRatio_
         if (remainingVolumeRatios_.find(waypointIndex_) == remainingVolumeRatios_.end()) {

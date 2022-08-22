@@ -262,6 +262,7 @@ class LocalPlanner {
   void footprintCallback(const m545_planner_msgs::M545FootprintRos& msg);
   boost::shared_mutex footprintMutex_;
   Eigen::Matrix<double, 5, 2> footprint_;
+  double footprintInflation_ = 1.0;
 
   ros::Subscriber globalPathSub_;
   void globalPathCallback(const geometry_msgs::PoseArray& msg);
