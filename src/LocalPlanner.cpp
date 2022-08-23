@@ -160,6 +160,7 @@ namespace local_excavation {
                                     3.5) &&
                   nh_.param<double>("/local_excavation/workspace_angle", circularWorkspaceAngle_, M_PI / 2) &&
                   nh_.param<double>("/local_excavation/max_volume", maxVolume_, 0.5) &&
+                  nh_.param<double>("/local_excavation/max_dirt_volume", maxDirtVolume_, 0.5) &&
                   nh_.param<double>("/local_excavation/volume_weight", volumeWeight_, 1) &&
                   nh_.param<double>("/local_excavation/distance_weight", distanceWeight_, 0.005) &&
                   nh_.param<double>("/local_excavation/heading_weight", headingWeight_, 0.05) &&
@@ -276,7 +277,7 @@ namespace local_excavation {
     // print footprint (eigen::vector2d)
     ROS_INFO_STREAM("[LocalPlanner]: Footprint: " << footprint_);
     for (auto waypointIdx = waypointIndex_ + 1; waypointIdx < globalPath_.size(); waypointIdx++) {
-      ROS_INFO_STREAM("[LocalPlanner]: Set excavation mask at waypoint " << waypointIdx);
+      // ROS_INFO_STREAM("[LocalPlanner]: Set excavation mask at waypoint " << waypointIdx);
       // extract x, y and yaw from the pose
       geometry_msgs::Pose nextWaypoint;
       try {
@@ -305,6 +306,51 @@ namespace local_excavation {
            !polygonIterator.isPastEnd(); ++polygonIterator) {
         if (planningMap_.at("current_excavation_mask", *polygonIterator) != -1) {
           planningMap_.at("current_excavation_mask", *polygonIterator) = 0;
+        }
+      }
+    }
+  }
+
+  void LocalPlanner::setWorkingAreaInPreviousStates(){
+    // reset current excavation mask
+    ROS_INFO_STREAM("[LocalPlanner]: Reset excavation mask");
+    // print current index
+    ROS_INFO_STREAM("[LocalPlanner]: Current index: " << waypointIndex_);
+    if (waypointIndex_ + 1 >= globalPath_.size()) {
+      return;
+    }
+    // print footprint (eigen::vector2d)
+    auto b_digVertices = getDiggingPatchVertices();
+    ROS_INFO_STREAM("[LocalPlanner]: Footprint: " << footprint_);
+    for (auto waypointIdx = 0; waypointIdx < waypointIndex_; waypointIdx++) {
+      // ROS_INFO_STREAM("[LocalPlanner]: Set excavation mask at waypoint " << waypointIdx);
+      // extract x, y and yaw from the pose
+      geometry_msgs::Pose nextWaypoint;
+      try {
+        nextWaypoint = globalPath_.at(waypointIdx);
+      } catch (const std::out_of_range& oor) {
+        ROS_ERROR_STREAM("[LocalPlanner]: Out of range exception: " << oor.what());
+        return;
+      }
+      Eigen::Quaterniond targetOrientation = Eigen::Quaterniond(nextWaypoint.orientation.w, nextWaypoint.orientation.x, nextWaypoint.orientation.y, nextWaypoint.orientation.z);
+      Eigen::Vector3d targetPosition(nextWaypoint.position.x, nextWaypoint.position.y, nextWaypoint.position.z);
+      // transform the dig vertices in the map frame 
+      std::vector<Eigen::Vector2d> w_digVertices;
+      for (auto& v : b_digVertices) {
+        Eigen::Vector3d v_3d = Eigen::Vector3d(v(0), v(1), 0);
+        Eigen::Vector3d v_map = targetOrientation * v_3d + targetPosition;
+        w_digVertices.push_back(Eigen::Vector2d(v_map(0), v_map(1)));
+      }
+      // make a gridmap poligon iterator and mark the points inside the footprint in the "current_excavation_mask" with value 0
+      grid_map::Polygon polygon;
+      for (int i = 0; i < w_digVertices.size(); i++) {
+        polygon.addVertex(w_digVertices.at(i));
+      }
+      // set the value of the mask to 0 unless it's -1 in the excavation_mask layer
+      for (auto polygonIterator = grid_map::PolygonIterator(planningMap_, polygon);
+           !polygonIterator.isPastEnd(); ++polygonIterator) {
+        if (planningMap_.at("current_excavation_mask", *polygonIterator) == -1) {
+          planningMap_.at("working_area", *polygonIterator) = 1;
         }
       }
     }
@@ -432,7 +478,7 @@ namespace local_excavation {
       return 0;
     }
     double workspaceVolume = 0;
-    ROS_INFO_STREAM("[LocalPlanner]: Computing workspace volume for zone " << zoneId);
+    // ROS_INFO_STREAM("[LocalPlanner]: Computing workspace volume for zone " << zoneId);
     // iterate over the zone cells
     grid_map::Polygon zonePolygon = planningZones_.at(zoneId);
     for (grid_map::PolygonIterator iterator(planningMap_, zonePolygon); !iterator.isPastEnd(); ++iterator) {
@@ -453,7 +499,7 @@ namespace local_excavation {
       // add the volume to the total volume
       workspaceVolume += volume;
     }
-    ROS_INFO_STREAM("[LocalPlanner]: Workspace volume for zone " << zoneId << " is " << workspaceVolume_);
+    // ROS_INFO_STREAM("[LocalPlanner]: Workspace volume for zone " << zoneId << " is " << workspaceVolume_);
     return workspaceVolume;
   }
 
@@ -858,6 +904,8 @@ namespace local_excavation {
     double volumeLeft = 0;
     double volumeRight = 0;
     std::vector<double> stepVolumes;
+    std::vector<double> otherVolumes;
+    std::vector<double> totalVolumes;
     double workspaceVolume = 0;
 
     Eigen::Vector3d s_posLeftShovel_cl(0.0, 0.75, 0.0);
@@ -910,7 +958,9 @@ namespace local_excavation {
       digPoints.push_back(w_P_next);
       // check if digging outside of the dig area stop
       volume += workspaceLineVolume + otherLineVolume;
-      stepVolumes.push_back(workspaceLineVolume + otherLineVolume);
+      otherVolumes.push_back(otherLineVolume);
+      stepVolumes.push_back(workspaceLineVolume);
+      totalVolumes.push_back(workspaceLineVolume + otherLineVolume);
       volumeLeft += std::get<0>(lineLeftVolume) + std::get<1>(lineLeftVolume);
       volumeRight += std::get<0>(lineRightVolume) + std::get<1>(lineRightVolume);
 
@@ -1029,6 +1079,9 @@ namespace local_excavation {
     // check for collisions
     std::vector<Eigen::Vector3d> collisionFreeDigPoints;
     std::vector<Eigen::Quaterniond> collisionFreeOrientations;
+    std::vector<double> collisionFreeStepVolumes;
+    std::vector<double> collisionFreeOtherVolumes;
+    std::vector<double> collisionFreeTotalVolumes;
     collisions::DistanceOptions distanceOptions;
     for (size_t i = 0; i < smoothedDigPoints.size(); i++) {
       this->updateShovelCollisionBody(smoothedDigPoints[i], digOrientations[i]);
@@ -1048,6 +1101,9 @@ namespace local_excavation {
       if (minDistance > minDistanceCollision_) {
         collisionFreeDigPoints.push_back(smoothedDigPoints[i]);
         collisionFreeOrientations.push_back(digOrientations[i]);
+        collisionFreeStepVolumes.push_back(stepVolumes[i]);
+        collisionFreeOtherVolumes.push_back(otherVolumes[i]);
+        collisionFreeTotalVolumes.push_back(totalVolumes[i]);
       } else {
         break;
       }
@@ -1111,8 +1167,9 @@ namespace local_excavation {
     Trajectory trajectory;
     trajectory.positions = digPointsFused;
     trajectory.orientations = digOrientationsFused;
-    trajectory.scoopedVolume = volume;
-    trajectory.workspaceVolume = workspaceVolume;
+    // sum elements of collisionFreeTotalVolumes
+    trajectory.scoopedVolume = std::accumulate(collisionFreeTotalVolumes.begin(), collisionFreeTotalVolumes.end(), 0.0);
+    trajectory.workspaceVolume = std::accumulate(collisionFreeStepVolumes.begin(), collisionFreeStepVolumes.end(), 0.0);
     trajectory.startDistanceFromBase = (w_P_wd_off.head(2) - w_P_wba.head(2)).norm();
     trajectory.endDistanceFromBase = (w_P_wd_last.head(2) - w_P_wba.head(2)).norm();
     trajectory.relativeHeading = relativeHeading;
@@ -1121,7 +1178,9 @@ namespace local_excavation {
     for (size_t i = 0; i < digPointsFused.size() - 1; i++) {
       trajectory.length += (digPointsFused[i] - digPointsFused[i + 1]).norm();
     }
-    trajectory.stepVolumes = stepVolumes;
+    trajectory.stepVolumes = collisionFreeStepVolumes;
+    trajectory.otherVolumes = collisionFreeOtherVolumes;
+    trajectory.totalVolumes = collisionFreeTotalVolumes;
     //  ROS_INFO_STREAM("[LocalPlanner]: completed trajectory starting at" << w_P_wd_off.transpose() << " with heading " << heading);
 
     // set the trajectory
@@ -1266,6 +1325,8 @@ namespace local_excavation {
     double volumeLeft = 0;
     double volumeRight = 0;
     std::vector<double> stepVolumes;
+    std::vector<double> otherVolumes;
+    std::vector<double> totalVolumes;
     double workspaceVolume = 0;
 
     Eigen::Vector3d s_posLeftShovel_cl(0.0, 0.75, 0.0);
@@ -1319,6 +1380,9 @@ namespace local_excavation {
       digPoints.push_back(w_P_next);
       // check if digging outside of the dig area stop
       volume += workspaceLineVolume + otherLineVolume;
+      otherVolumes.push_back(otherLineVolume);
+      stepVolumes.push_back(workspaceLineVolume);
+      totalVolumes.push_back(workspaceLineVolume + otherLineVolume);
       double stepVolume = workspaceLineVolume + otherLineVolume;
       if (stepVolume == 0 && previousStepVolume != 0) {
         valid = false;
@@ -1344,7 +1408,7 @@ namespace local_excavation {
       //  ROS_INFO_STREAM("[LocalPlanner]: line volume " << lineVolume);
       //  ROS_INFO_STREAM("[LocalPlanner]: volume " << volume);
       //  ROS_INFO_STREAM("[LocalPlanner]: workspace volume " << workspaceVolume);
-      if (volume > maxVolume_ || volumeLeft > maxVolume_ / 2 || volumeRight > maxVolume_ / 2) {
+      if (volume > maxDirtVolume_ || volumeLeft > maxDirtVolume_ / 2 || volumeRight > maxDirtVolume_ / 2) {
         valid = false;
         break;
       }
@@ -1445,6 +1509,9 @@ namespace local_excavation {
     // check for collisions
     std::vector<Eigen::Vector3d> collisionFreeDigPoints;
     std::vector<Eigen::Quaterniond> collisionFreeOrientations;
+    std::vector<double> collisionFreeStepVolumes;
+    std::vector<double> collisionFreeOtherVolumes;
+    std::vector<double> collisionFreeTotalVolumes;
     collisions::DistanceOptions distanceOptions;
     for (size_t i = 0; i < smoothedDigPoints.size(); i++) {
       this->updateShovelCollisionBody(smoothedDigPoints[i], digOrientations[i]);
@@ -1464,6 +1531,9 @@ namespace local_excavation {
       if (minDistance > minDistanceCollision_) {
         collisionFreeDigPoints.push_back(smoothedDigPoints[i]);
         collisionFreeOrientations.push_back(digOrientations[i]);
+        collisionFreeStepVolumes.push_back(stepVolumes[i]);
+        collisionFreeOtherVolumes.push_back(otherVolumes[i]);
+        collisionFreeTotalVolumes.push_back(totalVolumes[i]);
       } else {
         break;
       }
@@ -1526,8 +1596,8 @@ namespace local_excavation {
     Trajectory trajectory;
     trajectory.positions = digPointsFused;
     trajectory.orientations = digOrientationsFused;
-    trajectory.scoopedVolume = volume;
-    trajectory.workspaceVolume = workspaceVolume;
+    trajectory.scoopedVolume = std::accumulate(collisionFreeTotalVolumes.begin(), collisionFreeTotalVolumes.end(), 0.0);
+    trajectory.workspaceVolume = std::accumulate(collisionFreeStepVolumes.begin(), collisionFreeStepVolumes.end(), 0.0);
     trajectory.startDistanceFromBase = (w_P_wd_off.head(2) - w_P_wba.head(2)).norm();
     trajectory.endDistanceFromBase = (w_P_wd_last.head(2) - w_P_wba.head(2)).norm();
     trajectory.relativeHeading = relativeHeading;
@@ -1536,7 +1606,9 @@ namespace local_excavation {
     for (size_t i = 0; i < digPointsFused.size() - 1; i++) {
       trajectory.length += (digPointsFused[i] - digPointsFused[i + 1]).norm();
     }
-    trajectory.stepVolumes = stepVolumes;
+    trajectory.stepVolumes = collisionFreeStepVolumes;
+    trajectory.otherVolumes = collisionFreeOtherVolumes;
+    trajectory.totalVolumes = collisionFreeTotalVolumes;
     //  ROS_INFO_STREAM("[LocalPlanner]: completed trajectory starting at" << w_P_wd_off.transpose() << " with heading " << heading);
 
     // set the trajectory
@@ -1749,7 +1821,7 @@ namespace local_excavation {
         Eigen::Vector3d w_P_wd(diggingPoint.x(), diggingPoint.y(), elevation);
         Trajectory trajectory = this->computeTrajectory(w_P_wd, targetLayer, digZoneId_);
         // print volume
-//        ROS_INFO_STREAM("[LocalPlanner]: Volume " << trajectory.workspaceVolume);
+        // ROS_INFO_STREAM("[LocalPlanner]: Volume " << trajectory.workspaceVolume);
         double objective = this->volumeObjective(trajectory);
 //        ROS_INFO_STREAM("[LocalPlanner]: Objective " << objective);
         if (objective > maxObjective && trajectory.workspaceVolume > 0.02) {
@@ -1759,9 +1831,9 @@ namespace local_excavation {
       }
     }
     ROS_INFO_STREAM("[LocalPlanner]: Best trajectory has volume " << bestTrajectory.workspaceVolume);
-    //  // print best trajectory relative heading nad distance from base
-    ROS_INFO_STREAM("[LocalPlanner]: Best trajectory has relative heading " << bestTrajectory.relativeHeading);
-    ROS_INFO_STREAM("[LocalPlanner]: Best trajectory has distance from base " << bestTrajectory.startDistanceFromBase);
+    // //  // print best trajectory relative heading nad distance from base
+    // ROS_INFO_STREAM("[LocalPlanner]: Best trajectory has relative heading " << bestTrajectory.relativeHeading);
+    // ROS_INFO_STREAM("[LocalPlanner]: Best trajectory has distance from base " << bestTrajectory.startDistanceFromBase);
     double workspaceCost = volumeWeight_ * bestTrajectory.workspaceVolume;
     double distanceWeight = remainingVolumeRatio_ * distanceWeight_ * distanceWeight_ *
                             (bestTrajectory.startDistanceFromBase - circularWorkspaceInnerRadius_) /
@@ -1773,6 +1845,10 @@ namespace local_excavation {
     ROS_INFO_STREAM("[LocalPlanner]: Best trajectory has distance weight " << distanceWeight);
     ROS_INFO_STREAM("[LocalPlanner]: Best trajectory has heading weight " << headingWeight);
     ROS_INFO_STREAM("[LocalPlanner]: Best trajectory has length " << bestTrajectory.positions.size());
+    ROS_INFO_STREAM("[LocalPlanner]: Best trajectory volume length " << bestTrajectory.stepVolumes.size());
+    // for (int i = 0; i < bestTrajectory.stepVolumes.size(); i++) {
+    //   ROS_INFO_STREAM("[LocalPlanner]: Best trajectory step " << i << " has volume " << bestTrajectory.stepVolumes[i] << " other volume " << bestTrajectory.otherVolumes[i] << "total volumes " << bestTrajectory.totalVolumes[i]);
+    // }
     // raise a warning if the found trajectory is empty
     if (bestTrajectory.positions.size() == 0) {
       completedDigAreas_.at(digZoneId_) = 1;
@@ -1984,10 +2060,10 @@ namespace local_excavation {
     ROS_INFO_STREAM("[LocalPlanner]: Volume ratio: " << remainingVolumeRatio_);
     ROS_INFO_STREAM("#########################");
     if (digZoneId_ == 0) {
-      completed = remainingVolumeRatio_ < volumeThreshold_ && missingCellsRatio < missingCellsThreshold_;
-      if (completed) {
+      completed = remainingVolumeRatio_ < volumeThreshold_ || missingCellsRatio < missingCellsThreshold_;
+      if (completed){
         // sometimes due to noise of the sensors a zone gets dug multiple times even though it's finished.
-        completedDigAreas_.at(zoneId) = 1;
+        ROS_INFO_STREAM("[LocalPlanner]: Zone " << zoneId << " is finished");
         // if the map remainingVolumeRatio_ does not have a value for the current waypointIndex_, set it to the current
         // remainingVolumeRatio_
         if (remainingVolumeRatios_.find(waypointIndex_) == remainingVolumeRatios_.end()) {
@@ -2006,6 +2082,10 @@ namespace local_excavation {
     //  if (completed) {
     //    ROS_INFO_STREAM("[LocalPlanner]: Dig zone " << zoneId << " is completed!");
     //  }
+    if (completed){
+      completedDigAreas_.at(zoneId) = 1;
+      ROS_INFO_STREAM("[LocalPlanner]: Dig zone " << zoneId << " is completed!");
+    }
     return completed;
   }
 
@@ -2027,6 +2107,7 @@ namespace local_excavation {
     // if both dig zone is -1 then the local workspace is complete
     // time each step with chrono
     auto start = std::chrono::high_resolution_clock::now();
+    this->updateWorkingArea();
     this->updatePlanningMap();
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
@@ -2034,6 +2115,7 @@ namespace local_excavation {
     start = std::chrono::high_resolution_clock::now();
     if (createNewZones_) {
       // empty the planning zones vector
+      ROS_INFO_STREAM("[LocalPlanner]: Creating new zones");
       planningZones_.clear();
       this->createPlanningZones();
     }
@@ -2042,7 +2124,6 @@ namespace local_excavation {
     ROS_INFO_STREAM("[LocalPlanner]: createPlanningZones took " << duration.count() << " microseconds");
     start = std::chrono::high_resolution_clock::now();
     // updating the working ares is necessary to choose the right zone
-    this->updateWorkingArea();
     end = std::chrono::high_resolution_clock::now();
     duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
     ROS_INFO_STREAM("[LocalPlanner]: updateWorkingArea took " << duration.count() << " microseconds");
@@ -2160,6 +2241,11 @@ namespace local_excavation {
   }
 
   void LocalPlanner::choosePlanningZones() {
+    // print currenlty completed areas (completedDigAreas_)
+    ROS_INFO_STREAM("[LocalPlanner]: Completed Dig Areas: ");
+    for (int i = 0; i < completedDigAreas_.size(); i++) {
+      ROS_INFO_STREAM("[LocalPlanner]: " << completedDigAreas_.at(i));
+    }
     // this function selects the dig and dump zones.
     // we first select the dig area between 0, 1, 2 zones
     // dig zone 0 has priority if it's not completed
@@ -3518,6 +3604,7 @@ void LocalPlanner::computeSdf(std::string targetLayer) {
         ROS_ERROR("[LocalPlanner] Error while updating working area");
       }
     }
+    this->setWorkingAreaInPreviousStates();
   }
 
   void LocalPlanner::publishWorkingArea() {
