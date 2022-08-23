@@ -52,6 +52,8 @@ class Trajectory {
   double workspaceVolume = -10;
   double length = 0;
   std::vector<double> stepVolumes;
+  std::vector<double> otherVolumes;
+  std::vector<double> totalVolumes;
 };
 
 class LocalPlanner {
@@ -121,6 +123,7 @@ class LocalPlanner {
   bool isZoneActive(int digZoneId, bool isDigging);
   bool isLocalWorkspaceComplete();
   void updateWorkingArea();
+  void setWorkingAreaInPreviousStates();
   void updateDugZones();
   // select dumping zone based on this score
   void sdfDumpingAreas();
@@ -365,6 +368,7 @@ class LocalPlanner {
   double heightDumpThreshold_;
   // max volume in the shovel
   double maxVolume_;
+  double maxDirtVolume_;
   // distance before the shovel attitude is flat against the soil
   double draggingDistance_;
   double draggingDirtDistance_;
