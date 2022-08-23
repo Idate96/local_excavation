@@ -860,8 +860,8 @@ namespace local_excavation {
     std::vector<double> stepVolumes;
     double workspaceVolume = 0;
 
-    Eigen::Vector3d s_posLeftShovel_cl(0.0, 0.75, 0.0);
-    Eigen::Vector3d s_posRightShovel_cr(0.0, -0.75, 0.0);
+    Eigen::Vector3d s_posLeftShovel_cl(0.0, 0.70, 0.0);
+    Eigen::Vector3d s_posRightShovel_cr(0.0, -0.70, 0.0);
     // now we march with step size of planningMap resolution / 2 in the direction of the boom direction until the trajectory is not valid
     // anymore
     int numSteps = 0;
@@ -2542,7 +2542,7 @@ void LocalPlanner::computeSdf(std::string targetLayer) {
     }
 
     // get vertices for the zones
-    std::vector<Eigen::Vector2d> b_PosDigVertex_bd = getDiggingPatchVertices();
+    std::vector<Eigen::Vector2d> b_PosDigVertex_bd = getDiggingSawPatchVertices();
     std::vector<Eigen::Vector2d> b_PosDumpFrontLeft_bdu = getLeftCircularFrontSegmentPatch();
     std::vector<Eigen::Vector2d> b_PosDumpFrontRight_bdu = getRightCircularFrontSegmentPatch();
     std::vector<Eigen::Vector2d> b_PosDumpBackLeft_bdu = getLeftCircularBackSegmentPatch();
@@ -3267,10 +3267,76 @@ void LocalPlanner::computeSdf(std::string targetLayer) {
         loco_m545::AngleAxis(shovelYawAngle, 0, 0, 1))
         .toImplementation();
   }
+  std::vector<Eigen::Vector2d> LocalPlanner::getOuterDigZone(){
+    // this zone's "current excavation mask" will be set to 0 as we don't want to dig
+    // too much on the side otherwise it prevents the robot from driving to future workspaces
+    double theta = circularWorkspaceAngle_ * 1.1;
+    double r_out = circularWorkspaceOuterRadius_ * 1.1;
+    double r_in = circularWorkspaceInnerRadius_;
+    // create the vertices of the outer dig zone
+    // the circle is sampled at 10 points
+    std::vector<Eigen::Vector2d> vertices;
+    int numPoints = 15;
+    for (int i = 0; i < numPoints + 1; i++) {
+      double angle = -theta / 2 + theta * i / numPoints;
+      Eigen::Vector2d vertex(r_out * cos(angle),
+                             r_out * sin(angle));
+      vertices.push_back(vertex);
+    }
+    // add vertices belonging to another arc with radius circularWorkspaceInnerRadius_
+    // add them in the opposite order
+    for (int i = numPoints; i >= 0; i--) {
+      double angle = -theta / 2 + theta * i / numPoints;
+      Eigen::Vector2d vertex(r_in * cos(angle),
+                             r_in * sin(angle));
+      vertices.push_back(vertex);
+    }
+    return vertices;
+  }
+
+  std::vector<Eigen::Vector2d> LocalPlanner::getDiggingSawPatchVertices(){
+    double theta = circularWorkspaceAngle_;
+    double r_out = circularWorkspaceOuterRadius_;
+    double r_in = circularWorkspaceInnerRadius_;
+    // phi = 2 * arcsin( (r_out + r_in) / (2 * r_out) * sin(theta/2))
+    double phi = 2 * asin( (r_out + r_in) / (2 * r_out) * sin(theta / 2));
+    // outer vertices
+    std::vector<Eigen::Vector2d> outerVertices;
+    int numPoints = 15;
+    for (int i = 0; i < numPoints +1; i++) {
+      double angle = -phi / 2 + phi * i / numPoints;
+      Eigen::Vector2d vertex(r_out * cos(angle),
+      r_out * sin(angle));
+      outerVertices.push_back(vertex);
+    }
+    // mid radius vertices (r_out + r_in) / 2
+    Eigen::Vector2d midRadiusVertex_1((r_out + r_in) / 2 * cos(phi / 2), -(r_out + r_in) / 2 * sin(phi / 2));
+    Eigen::Vector2d midRadiusVertex_0((r_out + r_in) / 2 * cos(theta / 2), -(r_out + r_in) / 2 * sin(theta / 2));
+    Eigen::Vector2d midRadiusVertex_3((r_out + r_in) / 2 * cos(theta / 2), (r_out + r_in) / 2 * sin(theta / 2));
+    Eigen::Vector2d midRadiusVertex_2( (r_out + r_in) / 2 * cos(phi / 2), (r_out + r_in) / 2 * sin(phi / 2));
+
+    // add vertices belonging to another arc with radius circularWorkspaceInnerRadius_
+    // add them in the opposite order
+    std::vector<Eigen::Vector2d> innerVertices;
+    for (int i = numPoints; i >= 0; i--) {
+      double angle = -theta / 2 + theta * i / numPoints;
+      Eigen::Vector2d vertex(circularWorkspaceInnerRadius_ * cos(angle),
+      circularWorkspaceInnerRadius_ * sin(angle));
+      innerVertices.push_back(vertex);
+    }
+    // add all outer vertices, mid radius vertices 2 and 3 and all inner vertices and mid radius vertices 0 and 1
+    std::vector<Eigen::Vector2d> vertices;
+    vertices.insert(vertices.end(), outerVertices.begin(), outerVertices.end());
+    vertices.push_back(midRadiusVertex_2);
+    vertices.push_back(midRadiusVertex_3);
+    vertices.insert(vertices.end(), innerVertices.begin(), innerVertices.end());
+    vertices.push_back(midRadiusVertex_0);
+    vertices.push_back(midRadiusVertex_1);
+    vertices.push_back(outerVertices.at(0));
+    return vertices;
+  }
 
   std::vector<Eigen::Vector2d> LocalPlanner::getDiggingPatchVertices() {
-    // the digging patch is approximated by a semicircle with radius 0.5
-    // that spans from the angle -pi/5 to 1/5 pi
     // the circle is sampled at 10 points
     std::vector<Eigen::Vector2d> vertices;
     int numPoints = 15;

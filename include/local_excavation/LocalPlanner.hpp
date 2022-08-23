@@ -170,6 +170,7 @@ class LocalPlanner {
 
 
   std::vector<Eigen::Vector2d> getDiggingPatchVertices();
+  std::vector<Eigen::Vector2d> getDiggingSawPatchVertices();
   std::vector<Eigen::Vector2d> getLeftFrontPatch();
   std::vector<Eigen::Vector2d> getLeftCircularFrontSegmentPatch();
   std::vector<Eigen::Vector2d> getRightFrontPatch();
