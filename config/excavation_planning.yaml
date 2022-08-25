@@ -4,8 +4,9 @@ local_excavation:
   inner_digging_radius: 5.0 # meters
   outer_dumping_radius: 5.7
   inner_dumping_radius: 5.0
+
   min_distance_shovel_to_base: 2 # in meters
-  workspace_angle: 1.2 # radians
+  workspace_angle: 1.25 # radians
   max_volume: 1.2 # soil volume in m^3
   max_dirt_volume: 0.7
   volume_weight: 1

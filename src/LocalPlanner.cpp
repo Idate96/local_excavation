@@ -1558,7 +1558,7 @@ namespace local_excavation {
 //    // transfrom to world frame by rotating yaw angle around the z axis
 //    Eigen::AngleAxisd R_wc(heading, Eigen::Vector3d::UnitZ());
     Eigen::Vector3d w_P_wd3 = w_P_wd_last;
-    w_P_wd3.head(2) -= w_P_dba.head(2).normalized() * horizontalClosingOffset;
+    w_P_wd3.head(2) += w_P_dba.head(2).normalized() * horizontalClosingOffset;
     w_P_wd3(2) += verticalClosingOffset;
     double theta = M_PI / 2 - M_PI / 2;  // last quadrant of the circle
     //  Eigen::Vector3d w_P_wd3 =
@@ -2628,6 +2628,7 @@ void LocalPlanner::computeSdf(std::string targetLayer) {
     }
 
     // get vertices for the zones
+    std::vector<Eigen::Vector2d> b_PosDigOuter_bd = getOuterDiggingPatchVertices();
     std::vector<Eigen::Vector2d> b_PosDigVertex_bd = getDiggingSawPatchVertices();
     std::vector<Eigen::Vector2d> b_PosDumpFrontLeft_bdu = getLeftCircularFrontSegmentPatch();
     std::vector<Eigen::Vector2d> b_PosDumpFrontRight_bdu = getRightCircularFrontSegmentPatch();
@@ -2640,6 +2641,7 @@ void LocalPlanner::computeSdf(std::string targetLayer) {
     Eigen::Vector2d backLeftZoneCenter;
     Eigen::Vector2d backRightZoneCenter;
 
+    grid_map::Polygon digOuterZone;
     // diggingFrame_ defines the frame in which the vertices are defined
     switch (diggingFrame_) {
       case BASE: {
@@ -2682,6 +2684,7 @@ void LocalPlanner::computeSdf(std::string targetLayer) {
       }
       case MAP: {
         // map frame
+        std::vector<Eigen::Vector2d> w_PosOuterDigVertex_wd;
         std::vector<Eigen::Vector2d> w_PosDigVertex_wd;
         std::vector<Eigen::Vector2d> w_PosDumpFrontLeft_wdu;
         std::vector<Eigen::Vector2d> w_PosDumpFrontRight_wdu;
@@ -2739,6 +2742,7 @@ void LocalPlanner::computeSdf(std::string targetLayer) {
           }
         };
 
+
         // get yaw angle
         // transform the vertices
         for (Eigen::Vector2d vertex: b_PosDigVertex_bd) {
@@ -2754,6 +2758,18 @@ void LocalPlanner::computeSdf(std::string targetLayer) {
           w_PosDigVertex_bd.push_back(vertex_w);
         }
         frontZoneCenter /= b_PosDigVertex_bd.size();
+
+        for (Eigen::Vector2d vertex: b_PosDigOuter_bd){
+          if (!isWithinBounds(vertex)) {
+            ROS_WARN("[LocalPlanner]: vertex of dig zone is not within bounds");
+            continue;
+          }
+          Eigen::Vector3d vertex_eigen(vertex(0), vertex(1), 0);
+          Eigen::Vector3d vertex_w_eigen;
+          vertex_w_eigen = targetOrientation.toRotationMatrix() * vertex_eigen + t_bw;
+          Eigen::Vector2d vertex_w(vertex_w_eigen(0), vertex_w_eigen(1));
+          w_PosOuterDigVertex_wd.push_back(vertex_w);
+        }
 
         // get the center
         for (Eigen::Vector2d vertex: b_PosDumpFrontLeft_bdu) {
@@ -2817,6 +2833,7 @@ void LocalPlanner::computeSdf(std::string targetLayer) {
 
         // create the polygon for the digging zone
         this->publishWorkspacePts(w_PosDigVertex_bd, "map");
+        digOuterZone = planning_utils::toPolygon(w_PosOuterDigVertex_wd);
         digZone_ = planning_utils::toPolygon(w_PosDigVertex_bd);                      // zone 0
         dumpingLeftFrontZone_ = planning_utils::toPolygon(w_PosDumpFrontLeft_wdu);    // zone 1
         dumpingRightFrontZone_ = planning_utils::toPolygon(w_PosDumpFrontRight_wdu);  // zone 2
@@ -2871,6 +2888,24 @@ void LocalPlanner::computeSdf(std::string targetLayer) {
     //  ROS_INFO_STREAM("[LocalPlanner]: planning zones created");
     // update the excavation mask to prevent leaving dirt along the future path
     this->setExcavationMaskAtFutureStates();
+    this->setExcavationMaskAtOuterDigZone(digOuterZone);
+  }
+
+  void LocalPlanner::setExcavationMaskAtOuterDigZone(grid_map::Polygon& digOuterZone){
+    // iterate over the planningMap_ contained in the polygon and set the current_excavation_mask to 0
+    // for all the cells in the polygon that are not contained inside digZone_
+    for (grid_map::PolygonIterator iterator(planningMap_, digOuterZone); !iterator.isPastEnd(); ++iterator) {
+      // check if index is within bounds of digZone_ if not set the current_excavation_mask to 0
+      grid_map::Position position;
+      planningMap_.getPosition(*iterator, position);
+      if (!digZone_.isInside(position)) {
+        try {
+          planningMap_.at("current_excavation_mask", *iterator) = 0;
+        } catch (std::out_of_range& e) {
+          ROS_ERROR_STREAM("[LocalPlanner]: " << e.what());
+        }
+      }
+    }
   }
 
   void LocalPlanner::setWorkspacePose(Eigen::Vector3d &workspacePos, Eigen::Quaterniond &workspaceOrientation) {
@@ -3235,8 +3270,9 @@ void LocalPlanner::computeSdf(std::string targetLayer) {
         if (planningMap_.at("current_excavation_mask", index) == 1) {
           dumpCells++;
         }
-        // do not dump if the cell is already excavated
-        if (planningMap_.at("dug_area", index) == 1) {
+        // do not dump if the cell is already excavated or it's too close to the border of the zone
+        // check if planningMap_.at("current_excavation_mask", index) is approximately -0.5
+        if (planningMap_.at("dug_area", index) == 1 || planningMap_.at("current_excavation_mask", index) == -0.5){
           valid = false;
           break;
         }
@@ -3353,7 +3389,7 @@ void LocalPlanner::computeSdf(std::string targetLayer) {
         loco_m545::AngleAxis(shovelYawAngle, 0, 0, 1))
         .toImplementation();
   }
-  std::vector<Eigen::Vector2d> LocalPlanner::getOuterDigZone(){
+  std::vector<Eigen::Vector2d> LocalPlanner::getOuterDiggingPatchVertices(){
     // this zone's "current excavation mask" will be set to 0 as we don't want to dig
     // too much on the side otherwise it prevents the robot from driving to future workspaces
     double theta = circularWorkspaceAngle_ * 1.1;

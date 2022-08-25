@@ -171,7 +171,7 @@ class LocalPlanner {
   void setWorkspacePose(Eigen::Vector3d& workspacePos, Eigen::Quaterniond& workspaceOrientation);
   double distanceZones(int zoneId1, int zoneId2);
 
-
+  std::vector<Eigen::Vector2d> getOuterDiggingPatchVertices();
   std::vector<Eigen::Vector2d> getDiggingPatchVertices();
   std::vector<Eigen::Vector2d> getDiggingSawPatchVertices();
   std::vector<Eigen::Vector2d> getLeftFrontPatch();
@@ -273,6 +273,7 @@ class LocalPlanner {
   std::vector<geometry_msgs::Pose> globalPath_;
   int waypointIndex_ = 0;
   void setExcavationMaskAtFutureStates();
+  void setExcavationMaskAtOuterDigZone(grid_map::Polygon& polygon);
 
   std::string pathTopic_;
   std::string footprintTopic_;
