@@ -195,12 +195,12 @@ namespace local_excavation {
                   nh_.param<double>("/local_excavation/target_dig_dirt_attitude", targetDigDirtAttitude_, 0.3) &&
                   nh_.param<double>("/local_excavation/radial_dirt_offset", radialDirtOffset_, 0.3) &&
                   nh_.param<double>("/local_excavation/dragging_dirt_distance", draggingDirtDistance_, 0.3) &&
-                  nh_.param<std::string>("/m545_planner_node/footprint_topic", footprintTopic_, "/footprint") &&
-                  nh_.param<std::string>("path_topic", pathTopic_, "/coverage/poses") &&
                   nh_.param<double>("/local_excavation/target_height_diff_threshold", targetHeightDiffThreshold_,
                                     0.3) &&
                   nh_.param<double>("/local_excavation/min_scoop_volume", minScoopVolume_, 0.1) &&
                   nh_.param<int>("/local_excavation/low_volume_scoop_attempts", lowVolumeScoopAttempts_, 3);
+      nh_.param<std::string>("/m545_planner_node/footprint_topic", footprintTopic_, "/footprint");
+      nh_.param<std::string>("path_topic", pathTopic_, "/coverage/poses");
     nh_.param<std::string>("/local_excavation/save_map_path", saveMapPath_,
                            ros::package::getPath("local_excavation") + "/maps/latest.bag");
     if (!loaded) {
