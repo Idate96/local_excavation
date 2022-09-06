@@ -202,7 +202,8 @@ namespace local_excavation {
                                     0.3) &&
                   nh_.param<double>("/local_excavation/min_scoop_volume", minScoopVolume_, 0.1) &&
                   nh_.param<int>("/local_excavation/low_volume_scoop_attempts", lowVolumeScoopAttempts_, 3) &&
-                  nh_.param<double>("/local_excavation/footprint_inflation", footprintInflation_, 1.3);
+                  nh_.param<double>("/local_excavation/footprint_inflation", footprintInflation_, 1.3) &&
+                  nh_.param<double>("/local_excavation/depth_bias", depthBias_, 0.05);
     nh_.param<std::string>("/local_excavation/save_map_path", saveMapPath_,
                            ros::package::getPath("local_excavation") + "/maps/latest.bag");
     if (!loaded) {
@@ -924,7 +925,7 @@ namespace local_excavation {
       // height is overridden
       grid_map::Index nextIndex;
       planningMap_.getIndex(w_P_next.head(2), nextIndex);
-      double nextDesiredElevation = planningMap_.at(targetLayer, nextIndex);
+      double nextDesiredElevation = planningMap_.at(targetLayer, nextIndex) - depthBias_;
       double nextElevation = planningMap_.at("planning_elevation", nextIndex);
       // if nan set nextElevation to previousElevation
       if (std::isnan(nextElevation)) {

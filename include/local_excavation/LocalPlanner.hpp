@@ -365,6 +365,7 @@ class LocalPlanner {
   double volumeDirtThreshold_;
   double heightDirtThreshold_;
   double heightDigAreaThreshold_;
+  double depthBias_;
   double volumeDirtWeight_;
   double heightDumpThreshold_;
   // max volume in the shovel
