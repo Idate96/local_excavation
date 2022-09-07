@@ -981,6 +981,7 @@ namespace local_excavation {
       //  ROS_INFO_STREAM("[LocalPlanner]: volume " << volume);
       //  ROS_INFO_STREAM("[LocalPlanner]: workspace volume " << workspaceVolume);
       if (volume > maxVolume_ || volumeLeft > maxVolume_ / 2 || volumeRight > maxVolume_ / 2) {
+        ROS_INFO_STREAM("[LocalPlanner]: shovel full, current volume " << volume);
         valid = false;
         break;
       }
@@ -1106,6 +1107,7 @@ namespace local_excavation {
         collisionFreeOtherVolumes.push_back(otherVolumes[i]);
         collisionFreeTotalVolumes.push_back(totalVolumes[i]);
       } else {
+        ROS_INFO_STREAM("[LocalPlanner]: dig collision detected at point " << i);
         break;
       }
     }
