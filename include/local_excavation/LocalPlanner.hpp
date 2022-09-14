@@ -19,6 +19,11 @@
 #include <collisions/CollisionBody.hpp>
 #include "collisions/CollisionBodySimple.hpp"
 #include <collisions_geometry/CollisionGeometryBox.hpp>
+#include "collisions_visualization/geometry_to_marker.hpp"
+#include "collisions_visualization/CollisionGeometryMarkerPublisher.hpp"
+#include "collisions_visualization/CollisionsMarkerPublisher.hpp"
+#include "collisions_visualization/MarkerOptions.hpp"
+
 
 namespace local_excavation {
 
@@ -45,6 +50,7 @@ class Trajectory {
  public:
   std::vector<Eigen::Vector3d> positions;
   std::vector<Eigen::Quaterniond> orientations;
+  Eigen::Vector3d startPosition;
   double startDistanceFromBase = 0;
   double endDistanceFromBase = 0;
   double relativeHeading = 0;
@@ -96,7 +102,7 @@ class LocalPlanner {
   std::vector<Eigen::Vector3d> digTrajectory(Eigen::Vector3d& base_digPosition);
   void optimizeTrajectory();
   Trajectory computeTrajectory(Eigen::Vector3d& w_P_wd, std::string targetLayer, int zoneId);
-  Trajectory computeDigTrajectory(Eigen::Vector3d& w_P_wd, std::string targetLayer);
+  Trajectory computeDigTrajectory(Eigen::Vector3d& w_P_wd, std::string targetLayer, bool debug=false);
   Trajectory computeDirtTrajectory(Eigen::Vector3d& w_P_wd, std::string targetLayer);
   double volumeObjective(Trajectory trajectory);
   loco_m545::RotationQuaternion findOrientationWorldToShovel(double shovelRollAngle, double shovelPitchAngle, double shovelYawAngle);
@@ -141,6 +147,8 @@ class LocalPlanner {
   Eigen::Vector3d projectVectorOntoSubspace(Eigen::Vector3d& vector, Eigen::Matrix3Xd& subspaceBasis);
   void markDigDumpAreas();
   void resetDigDumpAreas();
+
+  void clearElevationMapAtShovelTrajectory();
 
   // ros publishers
   void publishPlanningMap();
@@ -192,9 +200,14 @@ class LocalPlanner {
   void setDumpZone(int zoneId);
   void setWaypointIndex(int index) { waypointIndex_ = index; }
 
+  void getShovelOrientation(std::vector<Eigen::Vector3d>& digPoints, std::vector<Eigen::Quaterniond>& orientations,
+                            double draggingDistance, double targetPitch, double initialPitch, double heading);
   // trajectory helpers
   std::vector<Eigen::Vector3d>  smoothZCoordinates(std::vector<Eigen::Vector3d>& trajectory);
   void setWorkingDirection(Eigen::Vector2d& workingDirection) { workingDirection_ = workingDirection; }
+  void publishCollisionTrajectory(std::vector<Eigen::Vector3d> pos, std::vector<Eigen::Quaterniond> orientations);
+  bool updateShovelCollisionBody(Eigen::Vector3d w_P_ws, Eigen::Quaterniond C_ws);
+  void publishCollisionPts(Eigen::Vector3d w_P_wd, Eigen::Quaterniond R_ws_d);
 
  private:
   // sub-map representing the reachable workspace of the robot
@@ -233,7 +246,6 @@ class LocalPlanner {
   collisions::CollisionGroup legCollisionGroup_;
   collisions_bullet::ColliderManagerBullet colliderManager_;
   collisions::CollisionGroup armGroup_;
-  bool updateShovelCollisionBody(Eigen::Vector3d w_P_ws, Eigen::Quaterniond C_ws);
   std::shared_ptr<collisions::CollisionBodySimple> shovelBodyPtr_;
 
   // if we need more than one "coverage lane" to covers the global workspace
@@ -261,6 +273,8 @@ class LocalPlanner {
   ros::Publisher polygonPublisher_;
   ros::Publisher shovelFilterPublisher_;
   ros::Publisher workingAreaPublisher_;
+  std::shared_ptr<collisions_visualization::CollisionGeometryMarkerPublisher> collisionPubPtr_;
+
 
   ros::Subscriber footprintSubscriber_;
   void footprintCallback(const m545_planner_msgs::M545FootprintRos& msg);
@@ -305,6 +319,18 @@ class LocalPlanner {
   // compute volume between shovel pts
   std::tuple<double, double> computeVolumeBetweenShovelPoints(Eigen::Vector3d& w_posLeftShovel_wl, Eigen::Vector3d& w_posRightShovel_wr,
                                                               double previousTerrainElevation);
+  // to speed up completion
+  void markAsDugShovelPointsCloseToDesiredElevation();
+  bool markDugShovelPointsCloseToDesiredElevation_;
+  // used to check if layer is finished. Sometimes the edges are cause problems
+  grid_map::Polygon shrinkGridMapPolygon(double shrinkFactor, grid_map::Polygon& polygon);
+  // elevation map params
+  double minElevationVar_;
+  double maxElevationVar_;
+
+  // to facilitate restart
+  bool markDugPreviousWaypoints_ = false;
+
   // current dig and dump zone
   int previousDigZoneId_ = -1;
   int previousDumpZoneId_ = -1;
@@ -365,6 +391,7 @@ class LocalPlanner {
   double volumeDirtThreshold_;
   double heightDirtThreshold_;
   double heightDigAreaThreshold_;
+  double digZoneShrinkFactor_;
   double depthBias_;
   double volumeDirtWeight_;
   double heightDumpThreshold_;

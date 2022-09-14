@@ -31,6 +31,8 @@ set(CATKIN_DEPENDENCIES
         tf2
         m545_planner_msgs
         se2_planning
+        collisions
+        collisions_visualization
         )
 
 set(CATKIN_DEPENDS
