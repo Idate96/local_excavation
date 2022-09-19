@@ -2158,6 +2158,12 @@ namespace local_excavation {
     }
   }
 
+  bool LocalPlanner::initializeLocalWorkspace(){
+    this->resetDigDumpAreas();
+    planningZones_.clear();
+    this->createPlanningZones();
+    return true;
+  }
   bool LocalPlanner::isLocalWorkspaceComplete() {
     // if both dig zone is -1 then the local workspace is complete
     // time each step with chrono
@@ -2166,36 +2172,27 @@ namespace local_excavation {
     this->updatePlanningMap();
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-    ROS_INFO_STREAM("[LocalPlanner]: updatePlanningMap took " << duration.count() << " microseconds");
-    start = std::chrono::high_resolution_clock::now();
-    if (createNewZones_) {
-      // empty the planning zones vector
-      ROS_INFO_STREAM("[LocalPlanner]: Creating new zones");
-      planningZones_.clear();
-      this->createPlanningZones();
-    }
-    end = std::chrono::high_resolution_clock::now();
+//    ROS_INFO_STREAM("[LocalPlanner]: updatePlanningMap took " << duration.count() << " microseconds");
     duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-    ROS_INFO_STREAM("[LocalPlanner]: createPlanningZones took " << duration.count() << " microseconds");
+//    ROS_INFO_STREAM("[LocalPlanner]: createPlanningZones took " << duration.count() << " microseconds");
     start = std::chrono::high_resolution_clock::now();
     // updating the working ares is necessary to choose the right zone
     end = std::chrono::high_resolution_clock::now();
     duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-    ROS_INFO_STREAM("[LocalPlanner]: updateWorkingArea took " << duration.count() << " microseconds");
+//    ROS_INFO_STREAM("[LocalPlanner]: updateWorkingArea took " << duration.count() << " microseconds");
     start = std::chrono::high_resolution_clock::now();
     this->updateDugZones();
     end = std::chrono::high_resolution_clock::now();
     duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-    ROS_INFO_STREAM("[LocalPlanner]: updateDugZones took " << duration.count() << " microseconds");
+//    ROS_INFO_STREAM("[LocalPlanner]: updateDugZones took " << duration.count() << " microseconds");
     start = std::chrono::high_resolution_clock::now();
     this->choosePlanningZones();
     end = std::chrono::high_resolution_clock::now();
     duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-    ROS_INFO_STREAM("[LocalPlanner]: choosePlanningZones took " << duration.count() << " microseconds");
+//    ROS_INFO_STREAM("[LocalPlanner]: choosePlanningZones took " << duration.count() << " microseconds");
     //  ROS_INFO_STREAM("[LocalPlanner]: Local workspace is not complete!");
     if (digZoneId_ == -1) {
       ROS_INFO_STREAM("[LocalPlanner]: Local workspace is complete!");
-      createNewZones_ = true;
       return true;
     } else {
       return false;
@@ -2474,7 +2471,6 @@ namespace local_excavation {
         planningMap_.at("active_dump_zones", index) = 0;
       }
     }
-    createNewZones_ = true;
   }
 
 // this could be quite noisy in the real world but it's good for testing

@@ -128,6 +128,7 @@ class LocalPlanner {
   bool isDigZoneComplete(int zoneId);
   bool isZoneActive(int digZoneId, bool isDigging);
   bool isLocalWorkspaceComplete();
+  bool initializeLocalWorkspace();
   void updateWorkingArea();
   void setWorkingAreaInPreviousStates();
   void updateDugZones();
