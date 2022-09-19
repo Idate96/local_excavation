@@ -208,9 +208,12 @@ namespace local_excavation {
                   nh_.param<double>("/local_excavation/depth_bias", depthBias_, 0.05) &&
                   nh_.param<double>("/local_excavation/min_elevation_variance", minElevationVar_, 1e-6) &&
                   nh_.param<double>("/local_excavation/max_elevation_variance", maxElevationVar_, 1e-2) &&
-                  nh_.param<bool>("local_excavation/mark_dug_previous_waypoints", markDugPreviousWaypoints_, false) &&
+                  nh_.param<double>("/local_excavation/dug_sdf_alpha", dugSdfAlpha_, 0.5) &&
+                  nh_.param<double>("/local_excavation/dug_sdf_beta", dugSdfBeta_, 0.5);
+                  nh_.param<bool>("local_excavation/mark_dug_previous_waypoints", markDugPreviousWaypoints_, false);
                   nh_.param<bool>("local_excavation/mark_completed_shovel_points_close_to_desired_elevation", markDugShovelPointsCloseToDesiredElevation_, false) &&
-                  nh_.param<double>("local_excavation/dig_zone_shirnk_factor", digZoneShrinkFactor_, 1.0);
+                  nh_.param<double>("local_excavation/dig_zone_shrink_factor", digZoneShrinkFactor_, 1.0);
+
     nh_.param<std::string>("/local_excavation/save_map_path", saveMapPath_,
                            ros::package::getPath("local_excavation") + "/maps/latest.bag");
     if (!loaded) {
@@ -404,6 +407,9 @@ namespace local_excavation {
     if (!planningMap_.exists("dug_area")) {
       planningMap_.add("dug_area", 0);
     }
+    if (!planningMap_.exists("dug_area_sdf")) {
+      planningMap_.add("dug_area_sdf", 0);
+    }
     if (!planningMap_.exists("working_area")) {
       if (planningMap_.exists("occupancy")) {
         planningMap_.add("working_area", 0);
@@ -416,12 +422,10 @@ namespace local_excavation {
       planningMap_.add("predig_elevation", 0);
       planningMap_["predig_elevation"] = excavationMappingPtr_->gridMap_["original_elevation"];
     }
-    
     if (!planningMap_.exists("current_excavation_mask")) {
       planningMap_.add("current_excavation_mask", 0);
       planningMap_["current_excavation_mask"] = excavationMappingPtr_->gridMap_["excavation_mask"];
     }
-
     //  planningMap_.add("working_area", 0);
     // if occupancy layer is available initialize the working area equal to it
     // the working area layer is used by the path planner to determine the area that is free to move into
@@ -444,9 +448,8 @@ namespace local_excavation {
 
     lock.unlock();
     ROS_INFO_STREAM("[LocalPlanner]: Initialized planning map");
-    this->createPlanningZones();
+//    this->createPlanningZones();
     createNewZones_ = true;  // initial zones are based on current pase position
-    //  this->updateDugZones();
     //  this->choosePlanningZones();
     this->createShovelFilter();
     //    std::thread planningThread_ = std::thread(&LocalPlanner::createPlanningZones, this);
@@ -744,7 +747,7 @@ namespace local_excavation {
       }
       double volumeSign = 1;
       // we need a volume sign to check weather we are supposed to dig here or not
-      if (planningMap_.at("current_excavation_mask", index) != -1) {
+      if (planningMap_.at("current_excavation_mask", index) > 0) {
         volumeSign = -2;
       }
       // if the value of terrain elevation is nan do not compute the volume
@@ -1198,7 +1201,7 @@ namespace local_excavation {
   }
 
 
-  Trajectory LocalPlanner::computeDirtTrajectory(Eigen::Vector3d &w_P_wd, std::string targetLayer) {
+  Trajectory LocalPlanner::computeDirtTrajectory(Eigen::Vector3d &w_P_wd, std::string targetLayer, bool debug) {
     // w_P_wd is the digging point
     // point below the surface
     //  ROS_INFO_STREAM("Computing trajectory for " << w_P_wd.transpose());
@@ -1411,7 +1414,9 @@ namespace local_excavation {
       //  ROS_INFO_STREAM("[LocalPlanner]: volume " << volume);
       //  ROS_INFO_STREAM("[LocalPlanner]: workspace volume " << workspaceVolume);
       if (volume > maxDirtVolume_ || volumeLeft > maxDirtVolume_ / 2 || volumeRight > maxDirtVolume_ / 2) {
-        ROS_INFO_STREAM("[LocalPlanner]: volume " << volume);
+        if (debug) {
+          ROS_INFO_STREAM("[LocalPlanner]: shovel full, current volume " << volume);
+        }
         valid = false;
         break;
       }
@@ -1419,7 +1424,9 @@ namespace local_excavation {
       double distanceFromBase = (w_P_next - w_P_wba).norm();
       //    ROS_INFO_STREAM("[LocalPlanner]: distance from base " << startDistanceFromBase);
       if (distanceFromBase < minDistanceShovelToBase_) {
-        ROS_INFO_STREAM("[LocalPlanner]: distance from base " << distanceFromBase);
+        if (debug) {
+          ROS_INFO_STREAM("[LocalPlanner]: distance from base too small, current distance " << distanceFromBase);
+        }
         valid = false;
         break;
       }
@@ -1440,20 +1447,36 @@ namespace local_excavation {
         break;
       }
     }
+    if (debug) {
+      ROS_INFO_STREAM("[LocalPlanner]: num points to remove " << numPointsToRemove);
+    }
+    // print amount of removed step volume
+    double removedVolume = 0;
+    for (size_t i = 0; i < numPointsToRemove; i++) {
+      removedVolume += stepVolumes[i];
+    }
     // remove some points, later on we run an interpolation on the remaining ones
     digPoints.erase(digPoints.begin(), digPoints.begin() + numPointsToRemove);
     stepVolumes.erase(stepVolumes.begin(), stepVolumes.begin() + numPointsToRemove);
     totalVolumes.erase(totalVolumes.begin(), totalVolumes.begin() + numPointsToRemove);
     numSteps -= numPointsToRemove;
-//     refine the trajectories by the last n point whose volume is zero
-    numPointsToRemove = stepVolumes.size() - 1;
+    // refine the trajectories by the last n point whose volume is zero
+    numPointsToRemove = 0;
     // we start from the end of stepVolumes because we want to remove the last n points
-    for (size_t i = stepVolumes.size() - 1; i > 0; i--) {
+    for (int i = totalVolumes.size() - 1; i >= 0; i--) {
       if (stepVolumes[i] < 0 || totalVolumes[i] <= 0) {
-        numPointsToRemove--;
+        numPointsToRemove++;
       } else {
         break;
       }
+    }
+    if (debug){
+      ROS_INFO_STREAM("[LocalPlanner]: num points to remove at the end " << numPointsToRemove);
+    }
+    // print amount of removed step volume
+    removedVolume = 0;
+    for (size_t i = 0; i < numPointsToRemove; i++) {
+      removedVolume += stepVolumes[stepVolumes.size() - 1 - i];
     }
     digPoints.erase(digPoints.end() - numPointsToRemove, digPoints.end());
     stepVolumes.erase(stepVolumes.end() - numPointsToRemove, stepVolumes.end());
@@ -1464,20 +1487,6 @@ namespace local_excavation {
     if (digPoints.size() == 0) {
       return Trajectory();
     }
-    // smooth out the z coordinates of DigPoints with filtering
-    // interpolate the z coordinates of DigPoints
-    //  // since the max depth is fixed and elevation map can be noisy we smooth out the z values
-    //  // by interpolating between the first and last point
-    //  // print difference in elevation between the first and the last point
-    //        double elevationDifference = digPoints.back()(2) - digPoints.front()(2);
-    //        ROS_INFO_STREAM("[LocalPlanner]: elevation difference " << elevationDifference);
-    //  for (size_t i = 0; i < digPoints.size(); i++) {
-    //    digPoints[i](2) = digPoints[0](2) + (digPoints[digPoints.size() - 1](2) - digPoints[0](2)) * (double) i / (digPoints.size() - 1);
-    //  }
-
-    // count how many points are necessary to reach a dragging distance of 1.5 meters
-    // this is used to control the attitude of the shovel
-    // if the trajectory is too long the shovel stays too vertical and soil won't be dragged effectively
 
     this->getShovelOrientation(digPoints, digOrientations, draggingDirtDistance_, targetDigDirtAttitude_, attitudeAngle, heading);
     // check for collisions
@@ -1594,6 +1603,8 @@ namespace local_excavation {
     trajectory.stepVolumes = collisionFreeStepVolumes;
     trajectory.otherVolumes = collisionFreeOtherVolumes;
     trajectory.totalVolumes = collisionFreeTotalVolumes;
+    trajectory.startPosition = w_P_wd;
+
     //  ROS_INFO_STREAM("[LocalPlanner]: completed trajectory starting at" << w_P_wd_off.transpose() << " with heading " << heading);
 
     // set the trajectory
@@ -2003,7 +2014,7 @@ namespace local_excavation {
     grid_map::Polygon shrinkedZonePolygon = this->shrinkGridMapPolygon(digZoneShrinkFactor_, zonePolygon);
     this->publishWorkspacePts(shrinkedZonePolygon.getVertices(), "map");
     for (grid_map::PolygonIterator iterator(planningMap_,
-                                            shrinkedZonePolygon); !iterator.isPastEnd(); ++iterator) {
+                                            zonePolygon); !iterator.isPastEnd(); ++iterator) {
       // get the position of the point
       grid_map::Index index(*iterator);
       // print position
@@ -2016,7 +2027,7 @@ namespace local_excavation {
       double elevation = planningMap_.at("elevation", index);  // this updated between one scoop and the next.
       double heightDifference;
       double originalHeightDifference;
-      if (planningMap_.at("current_excavation_mask", index) == -1) {
+      if (planningMap_.at("current_excavation_mask", index) != 1) {
         if (zoneId == 0) {
           // get the desired elevation of the point
           double desiredElevation = planningMap_.at("desired_elevation", index);
@@ -2350,13 +2361,13 @@ namespace local_excavation {
       double dugValue = planningMap_.at("dug_area", index);
       double excavationZone = planningMap_.at("current_excavation_mask", index);
       totalCells++;
-      if (planningMap_.at("working_area", index) == 1) {
+      if (planningMap_.at("current_excavation_mask", index) != 1) {
         numCellsToBeDug++;
       }
       if (dugValue == 1) {
         numDugCells++;
       }
-      if (excavationZone == -1) {
+      if (excavationZone != 1) {
         numCellsExcavationArea++;
       }
     }
@@ -2367,9 +2378,9 @@ namespace local_excavation {
       active = active && ((double) numCellsExcavationArea / totalCells) > (1 - inactiveAreaRatio_);
     } else {
       // number of already dug cells in the zone
-      //    ROS_INFO_STREAM("[LocalPlanner]: Dump zone " << zoneId << " has dug cell ratio " << (double) numCellsToBeDug / totalCells);
-      //    ROS_INFO_STREAM("[LocalPlanner]: It should be smaller than " <<  inactiveAreaRatio_);
-      active = active && ((double) numCellsToBeDug / totalCells) < inactiveAreaRatio_;
+      ROS_INFO_STREAM("[LocalPlanner]: Dump zone " << zoneId << " has dug cell ratio " << (double) numCellsToBeDug / totalCells);
+      ROS_INFO_STREAM("[LocalPlanner]: It should be smaller than " <<  inactiveAreaRatio_);
+      active = active && ((double) numDugCells / totalCells) < inactiveAreaRatio_;
     }
 
     //  if (isDigging){
@@ -2480,10 +2491,19 @@ namespace local_excavation {
       double heightDifference = std::max(0.0, elevation - desiredElevation);
       double heightOriginalDifference = std::max(0.0, originalElevation - desiredElevation);
       int toBeDugArea = planningMap_.at("current_excavation_mask", index);
-      if (heightDifference < heightThreshold_ && heightOriginalDifference > targetHeightDiffThreshold_ && toBeDugArea == -1) {
+      if (heightDifference < heightThreshold_ && heightOriginalDifference > 0.5 && toBeDugArea == -1) {
         planningMap_.at("dug_area", index) = 1;
         planningMap_.at("working_area", index) = 1;
       }
+    }
+    this->computeSdf("dug_area", "dug_area_sdf");
+    for (grid_map::GridMapIterator iterator(planningMap_); !iterator.isPastEnd(); ++iterator) {
+      // get the position of the point
+      grid_map::Index index(*iterator);
+      // get the elevation of the point
+      double sdfValue = planningMap_.at("dug_area_sdf", index);
+      // exp(- alpha * value)
+      planningMap_.at("dug_area_sdf", index) = dugSdfAlpha_ * exp(- dugSdfBeta_ * sdfValue);
     }
   }
 
@@ -2530,7 +2550,7 @@ namespace local_excavation {
       }
     }
     // now recompute the sdf
-    this->computeSdf("current_excavation_mask");
+    this->computeSdf("current_excavation_mask", "excavation_sdf");
 
     for (grid_map::GridMapIterator iterator(planningMap_); !iterator.isPastEnd(); ++iterator) {
       // get the position of the point
@@ -2570,7 +2590,7 @@ namespace local_excavation {
     // ROS_INFO_STREAM("[LocalPlanner]: SDF calculated");
   }
 
-void LocalPlanner::computeSdf(std::string targetLayer) {
+void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName) {
   // convert the excavation mask layer, which contains +1, 0, -1 to an occupancy layer by mapping the 0s and -1s to 0s
   grid_map::Matrix layer = planningMap_.get(targetLayer);
   Eigen::Matrix<bool, -1, -1> occupancyLayer(layer.rows(), layer.cols());
@@ -2586,7 +2606,11 @@ void LocalPlanner::computeSdf(std::string targetLayer) {
   // publish the map message every 5 seconds
   grid_map::Matrix sdfLayer = grid_map::signed_distance_field::signedDistanceFromOccupancy(occupancyLayer, planningMap_.getResolution());
   // add the layer to the map
-  planningMap_["excavation_sdf"] = sdfLayer;
+  // check that layer exists else initialize it
+  if (!planningMap_.exists(sdfLayerName)) {
+    planningMap_.add(sdfLayerName);
+  }
+  planningMap_[sdfLayerName] = sdfLayer;
   ROS_INFO_STREAM("Signed distance field added to map");
 }
 
@@ -2970,7 +2994,7 @@ void LocalPlanner::computeSdf(std::string targetLayer) {
       planningMap_.getPosition(*iterator, position);
       if (!digZone_.isInside(position)) {
         try {
-          planningMap_.at("current_excavation_mask", *iterator) = 0;
+          planningMap_.at("current_excavation_mask", *iterator) = 0.5;
         } catch (std::out_of_range& e) {
           ROS_ERROR_STREAM("[LocalPlanner]: " << e.what());
         }
@@ -3651,7 +3675,7 @@ void LocalPlanner::computeSdf(std::string targetLayer) {
     // the circle is sampled at 10 points
     int numPoints = 15;
     double startAngle = M_PI / 2;
-    double endAngle = M_PI / 2 + 1./4 * M_PI;
+    double endAngle = M_PI / 2 + 1./3 * M_PI;
     std::vector<Eigen::Vector2d> vertices;
     for (int i = 0; i < numPoints; i++) {
       double angle = startAngle + i * (endAngle - startAngle) / numPoints;
@@ -3699,7 +3723,7 @@ void LocalPlanner::computeSdf(std::string targetLayer) {
     // the circle is sampled at 10 points
     int numPoints = 15;
     double startAngle = - M_PI / 2;
-    double endAngle = - M_PI / 2 - 1./4 * M_PI;
+    double endAngle = - M_PI / 2 - 1./3 * M_PI;
     std::vector<Eigen::Vector2d> vertices;
     for (int i = 0; i < numPoints; i++) {
       double angle = startAngle + i * (endAngle - startAngle) / numPoints;
@@ -3772,14 +3796,6 @@ void LocalPlanner::computeSdf(std::string targetLayer) {
           planningMap_.at("working_area", index) = 1;
         } else {
           planningMap_.at("working_area", index) = 0;
-        }
-        double dugDifference = planningMap_.at("elevation", index) - planningMap_.at("desired_elevation", index);
-        if (abs(dugDifference) < heightDigAreaThreshold_) {
-          if (planningMap_.at("current_excavation_mask", index) == -1) {
-            planningMap_.at("dug_area", index) = 1;
-          } else {
-            planningMap_.at("dug_area", index) = 0;
-          }
         }
         // if occupancy is 1 at the cell mark it as untraversable
         if (planningMap_.at("occupancy", index) == 1) {

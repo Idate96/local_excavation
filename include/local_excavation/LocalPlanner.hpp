@@ -97,13 +97,13 @@ class LocalPlanner {
   Eigen::Vector3d findDumpingPointTrack();
 
   double objectiveDistanceAndElevation(grid_map::Position& base_diggingPoint);
-  void computeSdf(std::string targetLayer);
+  void computeSdf(std::string targetLayer, std::string sdfLayerName);
 
   std::vector<Eigen::Vector3d> digTrajectory(Eigen::Vector3d& base_digPosition);
   void optimizeTrajectory();
   Trajectory computeTrajectory(Eigen::Vector3d& w_P_wd, std::string targetLayer, int zoneId);
   Trajectory computeDigTrajectory(Eigen::Vector3d& w_P_wd, std::string targetLayer, bool debug=false);
-  Trajectory computeDirtTrajectory(Eigen::Vector3d& w_P_wd, std::string targetLayer);
+  Trajectory computeDirtTrajectory(Eigen::Vector3d& w_P_wd, std::string targetLayer, bool debug=false);
   double volumeObjective(Trajectory trajectory);
   loco_m545::RotationQuaternion findOrientationWorldToShovel(double shovelRollAngle, double shovelPitchAngle, double shovelYawAngle);
   Trajectory getDigTrajectoryWorldFrame(Eigen::Vector3d& w_P_wd);
@@ -423,6 +423,9 @@ class LocalPlanner {
   std::string saveMapPath_;
   // recovery behaviour
   int lowVolumeScoopCounter_ = 0;
+  //
+  double dugSdfAlpha_ = 1;
+  double dugSdfBeta_ = 1;
 };
 
 }  // namespace local_excavation

@@ -3,10 +3,10 @@ local_excavation:
   outer_digging_radius: 7.0 # in meters
   inner_digging_radius: 5.0 # meters
   outer_dumping_radius: 6.5
-  inner_dumping_radius: 4.5
+  inner_dumping_radius: 3.5
 
   min_distance_shovel_to_base: 2.5 # in meters
-  workspace_angle: 1.25 # radians
+  workspace_angle: 1.4 # radians
   max_volume: 0.8 # soil volume in m^3
   max_dirt_volume: 0.7
   volume_weight: 1
@@ -55,3 +55,5 @@ local_excavation:
   mark_dug_previous_waypoints: true
   mark_completed_shovel_points_close_to_desired_elevation: true
   dig_zone_shrink_factor: 0.95
+  dug_sdf_alpha: 5
+  dug_sdf_beta: 0.5
