@@ -1582,10 +1582,11 @@ namespace local_excavation {
       // we add a point to the trajectory to make sure that the robot is not too close to the base
       w_P_wd4.head(2) = w_P_wd3.head(2) + w_P_dba.head(2).normalized();
       w_P_wd4(2) = w_P_wd3(2) + verticalClosingOffset;
+          // add them to the list
+      digPointsFused.push_back(w_P_wd4);
+      digOrientationsFused.push_back(R_ws_d3);
     }
-    // add them to the list
-    digPointsFused.push_back(w_P_wd4);
-    digOrientationsFused.push_back(R_ws_d3);
+
 //    digPointsFused.push_back(w_P_wd4);
 //    digOrientationsFused.push_back(R_ws_d4);
     // check if digPointFused size is bigger then 0 else raise an warning
@@ -2082,7 +2083,7 @@ namespace local_excavation {
           volume += deltaSoilVolume;
           deltaOriginalVolume = deltaSoilVolume;
         }
-        if (planningMap_.at("completed_dig_zone", index) == 1) {
+        if (planningMap_.at("completed_dig_zone", index) != 1) {
           volume += deltaSoilVolume;
           if (heightDifference > heightThreshold) {
             numMissingCells++;
@@ -2290,10 +2291,10 @@ namespace local_excavation {
       for (int i = 1; i < 5; i++) {
         if (i != digZoneId) {
           bool zoneActive = this->isZoneActive(i, false) && not completedDumpAreas_.at(i - 1);
-//          ROS_INFO_STREAM("[LocalPlanner]: Dumping Zone " << i << " is active: " << zoneActive);
+         ROS_INFO_STREAM("[LocalPlanner]: Dumping Zone " << i << " is active: " << zoneActive);
           if (zoneActive && digZoneId != -1) {
             double zoneDumpingScore = this->getDumpingScore(i);
-//            ROS_INFO_STREAM("[LocalPlanner]: Dumping Zone " << i << " has dumping score: " << zoneDumpingScore);
+           ROS_INFO_STREAM("[LocalPlanner]: Dumping Zone " << i << " has dumping score: " << zoneDumpingScore);
             if (zoneDumpingScore < dumpingScore) {
               dumpingScore = zoneDumpingScore;
               dumpZoneId_ = i;
@@ -2388,8 +2389,8 @@ namespace local_excavation {
       active = active && ((double) numCellsExcavationArea / totalCells) > (1 - inactiveAreaRatio_);
     } else {
       // number of already dug cells in the zone
-//      ROS_INFO_STREAM("[LocalPlanner]: Dump zone " << zoneId << " has dug cell ratio " << (double) numCellsToBeDug / totalCells);
-//      ROS_INFO_STREAM("[LocalPlanner]: It should be smaller than " <<  inactiveAreaRatio_);
+      ROS_INFO_STREAM("[LocalPlanner]: Dump zone " << zoneId << " has dug cell ratio " << (double) numCellsToBeDug / totalCells);
+      ROS_INFO_STREAM("[LocalPlanner]: It should be smaller than " <<  inactiveAreaRatio_);
       active = active && ((double) numDugCells / totalCells) < inactiveAreaRatio_;
     }
 
@@ -2678,11 +2679,11 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
     score += scoreWorkingDir + scoreLocalDistance + scoreGlocalDistance;
     ROS_INFO_STREAM("[LocalPlanner]: dumping score for zone " << zoneId << " is " << score);
     //  print detailed breakdown of the score contribution
-//    ROS_INFO_STREAM(
-//        "[LocalPlanner]: total score " << score << ", dumping score breakdown for zone " << zoneId << " is "
-//                                       << scoreWorkingDir
-//                                       << " working dir bias, " << scoreLocalDistance << " local distance, "
-//                                       << scoreGlocalDistance << " global distance");
+   ROS_INFO_STREAM(
+       "[LocalPlanner]: total score " << score << ", dumping score breakdown for zone " << zoneId << " is "
+                                      << scoreWorkingDir
+                                      << " working dir bias, " << scoreLocalDistance << " local distance, "
+                                      << scoreGlocalDistance << " global distance");
     ROS_INFO_STREAM("[LocalPlanner]: --------------------------------------------------------------------------");
     return score;
   }
@@ -3443,6 +3444,11 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
           minSignedBaseDistance = x_base;
           dumpPointIndex_ = index;
         }
+      } else {
+        // print height and volume
+        // allowed values 
+        ROS_INFO_STREAM("[LocalPlanner]: findDumpPoint: maxHeightDiff: " << maxHeightDiff << " heightDiffThreshold: " << heightDumpThreshold_);
+        ROS_INFO_STREAM("[LocalPlanner]: findDumpPoint: filterVolume: " << filterVolume << " volumeThreshold: " << volumeDirtThreshold_);
       }
     }
     //  ROS_INFO_STREAM("[LocalPlanner]: findDumpPoint: best dump point score: " << digPointBestValue);
