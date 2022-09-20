@@ -1538,8 +1538,8 @@ namespace local_excavation {
     Eigen::Vector3d w_P_wd_last = smoothedDigPoints.back();
     // get the orientation of the shovel at the last point
     Eigen::Quaterniond R_ws_d_last = smoothedOrientations.back();
-    double horizontalClosingOffset = 0.3;
-    double verticalClosingOffset = 0.3;
+    double horizontalClosingOffset = 0.1;
+    double verticalClosingOffset = 0.4;
 //    Eigen::Vector3d w_P_d2d3 = w_P_dba.normalized() * scaling;
 //    // get desired height at the end of the trajectory
 //    grid_map::Position wg_P_wd2(w_P_wd_last(0), w_P_wd_last(1));
@@ -1574,6 +1574,17 @@ namespace local_excavation {
     //    digPointsFused.push_back(w_P_wd_last);
     //    digOrientationsFused.push_back(R_ws_d_last);
     digPointsFused.push_back(w_P_wd3);
+    digOrientationsFused.push_back(R_ws_d3);
+    // checkdistance from base
+    double distanceFromBase = (w_P_wd_last.head(2) - w_P_wba.head(2)).norm();
+    Eigen::Vector3d w_P_wd4 = Eigen::Vector3d::Zero();
+    if (distanceFromBase < minDistanceShovelToBase_) {
+      // we add a point to the trajectory to make sure that the robot is not too close to the base
+      w_P_wd4.head(2) = w_P_wd3.head(2) + w_P_dba.head(2).normalized();
+      w_P_wd4(2) = w_P_wd3(2) + verticalClosingOffset;
+    }
+    // add them to the list
+    digPointsFused.push_back(w_P_wd4);
     digOrientationsFused.push_back(R_ws_d3);
 //    digPointsFused.push_back(w_P_wd4);
 //    digOrientationsFused.push_back(R_ws_d4);
@@ -1989,15 +2000,18 @@ namespace local_excavation {
     if (completedDigAreas_.at(zoneId) == 1) {
       return true;
     }
-    // print height theshold
-    double heightThreshold;
-    if (zoneId == 0) {
-      heightThreshold = heightThreshold_;
-    } else {
-      heightThreshold = heightDirtThreshold_;
-    }
 
 //    ROS_INFO_STREAM("[LocalPlanner]: height threshold " << heightThreshold);
+
+    // print zone id
+    // print length of planning zones and the current zone id
+//    ROS_INFO_STREAM(
+//        "[LocalPlanner]: length of planning zones " << planningZones_.size() << " current zone id " << zoneId);
+    grid_map::Polygon zonePolygon = planningZones_.at(zoneId);
+    grid_map::Polygon shrinkedZonePolygon = this->shrinkGridMapPolygon(digZoneShrinkFactor_, zonePolygon);
+    this->publishWorkspacePts(shrinkedZonePolygon.getVertices(), "map");
+
+    // get the elevation of the point
     bool completed = false;
     // sum up all the remaining volume in the digZone and check two conditions:
     // 1. the sum is smaller than the volumeTreshold
@@ -2006,27 +2020,24 @@ namespace local_excavation {
     double totalVolume = 0;
     int totalNumCells = 0;
     int numMissingCells = 0;
-    // print zone id
-    // print length of planning zones and the current zone id
-//    ROS_INFO_STREAM(
-//        "[LocalPlanner]: length of planning zones " << planningZones_.size() << " current zone id " << zoneId);
-    grid_map::Polygon zonePolygon = planningZones_.at(zoneId);
-    grid_map::Polygon shrinkedZonePolygon = this->shrinkGridMapPolygon(digZoneShrinkFactor_, zonePolygon);
-    this->publishWorkspacePts(shrinkedZonePolygon.getVertices(), "map");
+
     for (grid_map::PolygonIterator iterator(planningMap_,
                                             zonePolygon); !iterator.isPastEnd(); ++iterator) {
       // get the position of the point
       grid_map::Index index(*iterator);
+      double elevation = planningMap_.at("elevation", index);  // this updated between one scoop and the next.
+      double heightDifference;
+      double originalHeightDifference;
+      double heightThreshold;
+      double deltaSoilVolume;
+      double deltaOriginalVolume;
       // print position
       // grid_map::Position position;
       // planningMap_.getPosition(index, position);
       // // print position
       // ROS_INFO_STREAM("[LocalPlanner]: position " << position);
 
-      // get the elevation of the point
-      double elevation = planningMap_.at("elevation", index);  // this updated between one scoop and the next.
-      double heightDifference;
-      double originalHeightDifference;
+
       if (planningMap_.at("current_excavation_mask", index) != 1) {
         if (zoneId == 0) {
           // get the desired elevation of the point
@@ -2046,21 +2057,15 @@ namespace local_excavation {
           if (std::isnan(heightDifference) || std::isnan(originalHeightDifference)) {
             continue;
           }
+          heightThreshold = heightThreshold_;
           // if marked as dug then skip
-          if (planningMap_.at("completed_dig_zone", index) == 1) {
-            continue;
-          }
           //        ROS_INFO_STREAM("[LocalPlanner]: height difference " << heightDifference);
           //        ROS_INFO_STREAM("[LocalPlanner]: original height difference " << originalHeightDifference);
-          if (heightDifference > heightThreshold) {
-            numMissingCells++;
-          }
-          double deltaOriginalVolume =
+
+          deltaOriginalVolume =
               originalHeightDifference * planningMap_.getResolution() * planningMap_.getResolution();
-          double deltaSoilVolume =
+          deltaSoilVolume =
               heightDifference * planningMap_.getResolution() * planningMap_.getResolution();
-          volume += deltaSoilVolume;
-          totalVolume += deltaOriginalVolume;
         } else if (zoneId == 1 || zoneId == 2) {
           double desiredElevation = excavationMappingPtr_->gridMap_.at("original_elevation", index);
 //          ROS_INFO_STREAM("[LocalPlanner]: desired elevation " << desiredElevation << " elevation " << elevation);
@@ -2070,14 +2075,21 @@ namespace local_excavation {
           }
 //                  ROS_INFO_STREAM("[LocalPlanner]: height difference " << heightDifference);
           //        originalHeightDifference = std::max(0.0, planningMap_.at("original_elevation", index) - desiredElevation);
-          if (heightDifference > heightDirtThreshold_) {
-            numMissingCells++;
-          }
-          double deltaSoilVolume =
+          heightThreshold = heightDirtThreshold_;
+
+          deltaSoilVolume =
               heightDifference * planningMap_.getResolution() * planningMap_.getResolution();
           volume += deltaSoilVolume;
+          deltaOriginalVolume = deltaSoilVolume;
+        }
+        if (planningMap_.at("completed_dig_zone", index) == 1) {
+          volume += deltaSoilVolume;
+          if (heightDifference > heightThreshold) {
+            numMissingCells++;
+          }
         }
         totalNumCells++;
+        totalVolume += deltaOriginalVolume;
       }
     }
 

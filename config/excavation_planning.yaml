@@ -3,8 +3,7 @@ local_excavation:
   outer_digging_radius: 7.0 # in meters
   inner_digging_radius: 5.0 # meters
   outer_dumping_radius: 6.5
-  inner_dumping_radius: 3.5
-
+  inner_dumping_radius: 3.7
   min_distance_shovel_to_base: 2.5 # in meters
   workspace_angle: 1.4 # radians
   max_volume: 0.8 # soil volume in m^3
@@ -48,7 +47,7 @@ local_excavation:
   target_height_diff_threshold: 0.3
   min_scoop_volume: 0.15
   low_volume_scoop_attempts: 3
-  footprint_inflation: 1.3
+  footprint_inflation: 1.5
   depth_bias: 0.1
   min_elevation_variance: 0.000001
   max_elevation_variance: 0.001
