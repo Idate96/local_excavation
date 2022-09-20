@@ -365,8 +365,8 @@ namespace local_excavation {
   }
 
   bool LocalPlanner::digAndDumpServiceCallback(DigDumpSrv::Request &request, DigDumpSrv::Response &response) {
-    ROS_INFO_STREAM("[LocalPlanner]: Dig and dump service called with dump zone " << request.dump_zone << " and "
-                                                                                  << request.dig_zone);
+//    ROS_INFO_STREAM("[LocalPlanner]: Dig and dump service called with dump zone " << request.dump_zone << " and "
+//                                                                                  << request.dig_zone);
     this->setDigZone(request.dig_zone);
     this->setDumpZone(request.dump_zone);
     // if both are -1 set the planner mode to automatic
@@ -380,7 +380,7 @@ namespace local_excavation {
 
   bool LocalPlanner::initialize(std::string designMapBag) {
     excavationMappingPtr_->initialize(designMapBag);
-    ROS_INFO_STREAM("[LocalPlanner] loaded map into excavation mapping");
+//    ROS_INFO_STREAM("[LocalPlanner] loaded map into excavation mapping");
     //  excavationMappingPtr_->gridMap_.add("planning_zones", 0);
     //  excavationMappingPtr_->gridMap_.add("cost", 0);
     // start a new thread to create the planning zones and join it to the main thread
@@ -1878,7 +1878,7 @@ namespace local_excavation {
         }
       }
     }
-    ROS_INFO_STREAM("[LocalPlanner]: Best trajectory has volume " << bestTrajectory.workspaceVolume);
+//    ROS_INFO_STREAM("[LocalPlanner]: Best trajectory has volume " << bestTrajectory.workspaceVolume);
     // //  // print best trajectory relative heading nad distance from base
     // ROS_INFO_STREAM("[LocalPlanner]: Best trajectory has relative heading " << bestTrajectory.relativeHeading);
     // ROS_INFO_STREAM("[LocalPlanner]: Best trajectory has distance from base " << bestTrajectory.startDistanceFromBase);
@@ -1888,12 +1888,12 @@ namespace local_excavation {
                             (circularWorkspaceOuterRadius_ - circularWorkspaceInnerRadius_);
     double headingWeight = remainingVolumeRatio_ * headingWeight_ * bestTrajectory.relativeHeading /
                            (circularWorkspaceAngle_ / 2.0);
-    ROS_INFO_STREAM("[LocalPlanner]: remainingVolumeRatio_ " << remainingVolumeRatio_);
+//    ROS_INFO_STREAM("[LocalPlanner]: remainingVolumeRatio_ " << remainingVolumeRatio_);
     ROS_INFO_STREAM("[LocalPlanner]: Best trajectory has volume cost " << workspaceCost);
     ROS_INFO_STREAM("[LocalPlanner]: Best trajectory has distance weight " << distanceWeight);
     ROS_INFO_STREAM("[LocalPlanner]: Best trajectory has heading weight " << headingWeight);
-    ROS_INFO_STREAM("[LocalPlanner]: Best trajectory has length " << bestTrajectory.positions.size());
-    ROS_INFO_STREAM("[LocalPlanner]: Best trajectory volume length " << bestTrajectory.stepVolumes.size());
+//    ROS_INFO_STREAM("[LocalPlanner]: Best trajectory has length " << bestTrajectory.positions.size());
+//    ROS_INFO_STREAM("[LocalPlanner]: Best trajectory volume length " << bestTrajectory.stepVolumes.size());
     // for (int i = 0; i < bestTrajectory.stepVolumes.size(); i++) {
     //   ROS_INFO_STREAM("[LocalPlanner]: Best trajectory step " << i << " has volume " << bestTrajectory.stepVolumes[i] << " other volume " << bestTrajectory.otherVolumes[i] << "total volumes " << bestTrajectory.totalVolumes[i]);
     // }
@@ -1903,8 +1903,8 @@ namespace local_excavation {
       ROS_WARN_STREAM("[LocalPlanner]: could not find a valid trajectory in digZoneId_ " << digZoneId_);
     }
     // print expected volume for the best trajectory
-    ROS_INFO_STREAM(
-        "[LocalPlanner]: ---------------------------- Expected volume " << bestTrajectory.workspaceVolume);
+//    ROS_INFO_STREAM(
+//        "[LocalPlanner]: ---------------------------- Expected volume " << bestTrajectory.workspaceVolume);
     // print trajectory step volumes
     optimalDigTrajectory_ = bestTrajectory;
   }
@@ -1997,7 +1997,7 @@ namespace local_excavation {
       heightThreshold = heightDirtThreshold_;
     }
 
-    ROS_INFO_STREAM("[LocalPlanner]: height threshold " << heightThreshold);
+//    ROS_INFO_STREAM("[LocalPlanner]: height threshold " << heightThreshold);
     bool completed = false;
     // sum up all the remaining volume in the digZone and check two conditions:
     // 1. the sum is smaller than the volumeTreshold
@@ -2008,8 +2008,8 @@ namespace local_excavation {
     int numMissingCells = 0;
     // print zone id
     // print length of planning zones and the current zone id
-    ROS_INFO_STREAM(
-        "[LocalPlanner]: length of planning zones " << planningZones_.size() << " current zone id " << zoneId);
+//    ROS_INFO_STREAM(
+//        "[LocalPlanner]: length of planning zones " << planningZones_.size() << " current zone id " << zoneId);
     grid_map::Polygon zonePolygon = planningZones_.at(zoneId);
     grid_map::Polygon shrinkedZonePolygon = this->shrinkGridMapPolygon(digZoneShrinkFactor_, zonePolygon);
     this->publishWorkspacePts(shrinkedZonePolygon.getVertices(), "map");
@@ -2082,9 +2082,9 @@ namespace local_excavation {
     }
 
       ROS_INFO_STREAM("[LocalPlanner]: Volume remaining in zone " << zoneId << " is " << volume);
-    if (zoneId > 0){
-      ROS_INFO_STREAM("[LocalPlanner]: Total volume to remove is " << digZonesVolume_.at(zoneId));
-    }
+//    if (zoneId > 0){
+//      ROS_INFO_STREAM("[LocalPlanner]: Total volume to remove is " << digZonesVolume_.at(zoneId));
+//    }
     //  ROS_INFO_STREAM("[LocalPlanner]: Total volume remaining is " << totalVolume);
     //  ROS_INFO_STREAM("[LocalPlanner]: Total number of cells is " << totalNumCells);
     //  ROS_INFO_STREAM("[LocalPlanner]: Number of missing cells is " << numMissingCells);
@@ -2095,7 +2095,7 @@ namespace local_excavation {
     } else {
       remainingVolumeRatio_ = volume / digZonesVolume_.at(zoneId);
     }
-    ROS_INFO_STREAM("[LocalPlanner]: Workspace volume " << workspaceVolume_);
+//    ROS_INFO_STREAM("[LocalPlanner]: Workspace volume " << workspaceVolume_);
     // if nan throw error
     if (std::isnan(remainingVolumeRatio_)) {
       ROS_ERROR_STREAM("[LocalPlanner]: Volume ratio is nan");
@@ -2108,8 +2108,8 @@ namespace local_excavation {
       remainingVolumeRatio_ = 1.0;
     }
     double missingCellsRatio = (double) numMissingCells / totalNumCells;
-    ROS_INFO_STREAM(
-        "[LocalPlanner]: missing num cells " << numMissingCells << " total num cells " << totalNumCells);
+//    ROS_INFO_STREAM(
+//        "[LocalPlanner]: missing num cells " << numMissingCells << " total num cells " << totalNumCells);
     ROS_INFO_STREAM("#########################");
     ROS_INFO_STREAM("[LocalPlanner]: missing cell ratio: " << missingCellsRatio);
     ROS_INFO_STREAM("[LocalPlanner]: Volume ratio: " << remainingVolumeRatio_);
@@ -2118,7 +2118,7 @@ namespace local_excavation {
       completed = (remainingVolumeRatio_ < volumeThreshold_) || (missingCellsRatio < missingCellsThreshold_);
       if (completed){
         // sometimes due to noise of the sensors a zone gets dug multiple times even though it's finished.
-        ROS_INFO_STREAM("[LocalPlanner]: Zone " << zoneId << " is finished");
+//        ROS_INFO_STREAM("[LocalPlanner]: Zone " << zoneId << " is finished");
         // if the map remainingVolumeRatio_ does not have a value for the current waypointIndex_, set it to the current
         // remainingVolumeRatio_
         if (remainingVolumeRatios_.find(waypointIndex_) == remainingVolumeRatios_.end()) {
@@ -2139,7 +2139,7 @@ namespace local_excavation {
     //  }
     if (completed){
       completedDigAreas_.at(zoneId) = 1;
-      ROS_INFO_STREAM("[LocalPlanner]: Dig zone " << zoneId << " is completed!");
+//      ROS_INFO_STREAM("[LocalPlanner]: Dig zone " << zoneId << " is completed!");
     }
     return completed;
   }
@@ -2248,7 +2248,7 @@ namespace local_excavation {
       } else {
         for (int i = 1; i < 3; i++) {
           if (this->isZoneActive(i, true)) {
-            ROS_INFO_STREAM("[LocalPlanner]: Digging Zone " << i << " is active!");
+//            ROS_INFO_STREAM("[LocalPlanner]: Digging Zone " << i << " is active!");
             if (!this->isDigZoneComplete(i)) {
               digZoneId_ = i;
               break;
@@ -2267,6 +2267,7 @@ namespace local_excavation {
   }
 
   int LocalPlanner::chooseDumpZone(int digZoneId) {
+    this->sdfDumpingAreas();
     if (autoZoneSelection_) {
       // select the dumping zone we check zones 1, 2, 3, 4 to see if they are active.
       // we then sort the active zones based on their dumpingScore
@@ -2277,10 +2278,10 @@ namespace local_excavation {
       for (int i = 1; i < 5; i++) {
         if (i != digZoneId) {
           bool zoneActive = this->isZoneActive(i, false) && not completedDumpAreas_.at(i - 1);
-          ROS_INFO_STREAM("[LocalPlanner]: Dumping Zone " << i << " is active: " << zoneActive);
+//          ROS_INFO_STREAM("[LocalPlanner]: Dumping Zone " << i << " is active: " << zoneActive);
           if (zoneActive && digZoneId != -1) {
             double zoneDumpingScore = this->getDumpingScore(i);
-            ROS_INFO_STREAM("[LocalPlanner]: Dumping Zone " << i << " has dumping score: " << zoneDumpingScore);
+//            ROS_INFO_STREAM("[LocalPlanner]: Dumping Zone " << i << " has dumping score: " << zoneDumpingScore);
             if (zoneDumpingScore < dumpingScore) {
               dumpingScore = zoneDumpingScore;
               dumpZoneId_ = i;
@@ -2375,8 +2376,8 @@ namespace local_excavation {
       active = active && ((double) numCellsExcavationArea / totalCells) > (1 - inactiveAreaRatio_);
     } else {
       // number of already dug cells in the zone
-      ROS_INFO_STREAM("[LocalPlanner]: Dump zone " << zoneId << " has dug cell ratio " << (double) numCellsToBeDug / totalCells);
-      ROS_INFO_STREAM("[LocalPlanner]: It should be smaller than " <<  inactiveAreaRatio_);
+//      ROS_INFO_STREAM("[LocalPlanner]: Dump zone " << zoneId << " has dug cell ratio " << (double) numCellsToBeDug / totalCells);
+//      ROS_INFO_STREAM("[LocalPlanner]: It should be smaller than " <<  inactiveAreaRatio_);
       active = active && ((double) numDugCells / totalCells) < inactiveAreaRatio_;
     }
 
@@ -2607,7 +2608,7 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
     planningMap_.add(sdfLayerName);
   }
   planningMap_[sdfLayerName] = sdfLayer;
-  ROS_INFO_STREAM("Signed distance field added to map");
+//  ROS_INFO_STREAM("Signed distance field added to map");
 }
 
   double LocalPlanner::getDumpingScore(int zoneId) {
@@ -2635,7 +2636,6 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
 
     double score;
     double totalDistance = 0;
-    this->sdfDumpingAreas();
     for (grid_map::PolygonIterator iterator(planningMap_,
                                             planningZones_.at(zoneId)); !iterator.isPastEnd(); ++iterator) {
       // get the position of the point
@@ -2666,11 +2666,11 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
     score += scoreWorkingDir + scoreLocalDistance + scoreGlocalDistance;
     ROS_INFO_STREAM("[LocalPlanner]: dumping score for zone " << zoneId << " is " << score);
     //  print detailed breakdown of the score contribution
-    ROS_INFO_STREAM(
-        "[LocalPlanner]: total score " << score << ", dumping score breakdown for zone " << zoneId << " is "
-                                       << scoreWorkingDir
-                                       << " working dir bias, " << scoreLocalDistance << " local distance, "
-                                       << scoreGlocalDistance << " global distance");
+//    ROS_INFO_STREAM(
+//        "[LocalPlanner]: total score " << score << ", dumping score breakdown for zone " << zoneId << " is "
+//                                       << scoreWorkingDir
+//                                       << " working dir bias, " << scoreLocalDistance << " local distance, "
+//                                       << scoreGlocalDistance << " global distance");
     ROS_INFO_STREAM("[LocalPlanner]: --------------------------------------------------------------------------");
     return score;
   }
@@ -2796,13 +2796,13 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
           // todo: put proper translation vector
           // t_bw = Eigen::Vector3d(T_bw.transform.translation.x, T_bw.transform.translation.y, T_bw.transform.translation.z);
           t_bw = workspacePos_;
-          ROS_INFO_STREAM(
-              "*****************************************************************************************");
-          ROS_INFO_STREAM("[LocalPlanner]: workspace pos is " << workspacePos_);
-          // print the T_bw.translation
-          ROS_INFO_STREAM("[LocalPlanner]: T_bw.translation is " << T_bw.transform.translation.x << " "
-                                                                 << T_bw.transform.translation.y << " "
-                                                                 << T_bw.transform.translation.z);
+//          ROS_INFO_STREAM(
+//              "*****************************************************************************************");
+//          ROS_INFO_STREAM("[LocalPlanner]: workspace pos is " << workspacePos_);
+//          // print the T_bw.translation
+//          ROS_INFO_STREAM("[LocalPlanner]: T_bw.translation is " << T_bw.transform.translation.x << " "
+//                                                                 << T_bw.transform.translation.y << " "
+//                                                                 << T_bw.transform.translation.z);
           // print workspace position
           isWorkspacePoseSet_ = false;
         } else {
@@ -2818,7 +2818,7 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
         currentOrientation_ = x_bw.head(2);
         // normalize it
         currentOrientation_.normalize();
-        ROS_INFO_STREAM("[LocalPlanner]: current orientation: " << currentOrientation_.transpose());
+//        ROS_INFO_STREAM("[LocalPlanner]: current orientation: " << currentOrientation_.transpose());
 
         // labmda function that checks weather vertex coordiinates are within bounds [-100, 100] and return true if they are
         auto isWithinBounds = [&](Eigen::Vector2d v) {
@@ -3826,7 +3826,7 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
       this->markAsDugShovelPointsCloseToDesiredElevation();
     }
     excavationMappingPtr_->clearElevationMapAtShovelTrajectory(scoopVariance);
-    ROS_INFO_STREAM("[LocalPlanner] Scooped volume: " << scoopedVolume);
+//    ROS_INFO_STREAM("[LocalPlanner] Scooped volume: " << scoopedVolume);
     ROS_INFO_STREAM("[LocalPlanner] Scoop variance: " << scoopVariance);
   }
 
@@ -3849,7 +3849,7 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
         ROS_ERROR("[LocalPlanner] Error while updating dug area");
       }
     }
-    ROS_INFO_STREAM("[LocalPlanner] Marked " << markedPoints << " points as dug");
+//    ROS_INFO_STREAM("[LocalPlanner] Marked " << markedPoints << " points as dug");
   }
 
 //

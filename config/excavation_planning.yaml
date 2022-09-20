@@ -51,7 +51,7 @@ local_excavation:
   footprint_inflation: 1.3
   depth_bias: 0.1
   min_elevation_variance: 0.000001
-  max_elevation_variance: 0.01
+  max_elevation_variance: 0.001
   mark_dug_previous_waypoints: true
   mark_completed_shovel_points_close_to_desired_elevation: true
   dig_zone_shrink_factor: 0.95
