@@ -207,7 +207,7 @@ namespace local_excavation {
                   nh_.param<double>("/local_excavation/footprint_inflation", footprintInflation_, 1.3) &&
                   nh_.param<double>("/local_excavation/depth_bias", depthBias_, 0.05) &&
                   nh_.param<double>("/local_excavation/min_elevation_variance", minElevationVar_, 1e-6) &&
-                  nh_.param<double>("/local_excavation/max_elevation_variance", maxElevationVar_, 1e-2) &&
+                  nh_.param<double>("/local_excavation/max_elevation_variance", maxElevationVar_, 1e-3) &&
                   nh_.param<double>("/local_excavation/dug_sdf_alpha", dugSdfAlpha_, 0.5) &&
                   nh_.param<double>("/local_excavation/dug_sdf_beta", dugSdfBeta_, 0.5);
                   nh_.param<bool>("local_excavation/mark_dug_previous_waypoints", markDugPreviousWaypoints_, false);
@@ -2115,7 +2115,7 @@ namespace local_excavation {
     ROS_INFO_STREAM("[LocalPlanner]: Volume ratio: " << remainingVolumeRatio_);
     ROS_INFO_STREAM("#########################");
     if (digZoneId_ == 0) {
-      completed = remainingVolumeRatio_ < volumeThreshold_ || missingCellsRatio < missingCellsThreshold_;
+      completed = (remainingVolumeRatio_ < volumeThreshold_) || (missingCellsRatio < missingCellsThreshold_);
       if (completed){
         // sometimes due to noise of the sensors a zone gets dug multiple times even though it's finished.
         ROS_INFO_STREAM("[LocalPlanner]: Zone " << zoneId << " is finished");
