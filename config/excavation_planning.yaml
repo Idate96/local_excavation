@@ -4,14 +4,18 @@ local_excavation:
   inner_digging_radius: 5.0 # meters
   outer_dumping_radius: 6.5
   inner_dumping_radius: 3.7
-  min_distance_shovel_to_base: 2.5 # in meters
-  workspace_angle: 1.4 # radians
+  outer_workspace_outer_radius_factor: 1.1
+  outer_workspace_inner_radius_factor: 1.0
+  outer_workspace_angle_factor: 1.01
+  min_distance_shovel_to_base: 2.8 # in meters
+  min_distance_shovel_to_base_refined: 4.0
+  workspace_angle: 1.9 # radians
   max_volume: 0.8 # soil volume in m^3
-  max_dirt_volume: 0.7
+  max_dirt_volume: 0.8
   volume_weight: 1
+  swept_area_weight: 1
   distance_weight: 0.2
   heading_weight: 0.08
-  dump_height: 1.0 # in meters
   dump_height: 1.0 # in meters
   volume_dirt_threshold: 3.0
   height_dirt_threshold: 0.2
@@ -19,40 +23,54 @@ local_excavation:
   volume_threshold: 0.15 # in m^3, parameter that controls when the workspace is done
   height_threshold: 0.10 # in meters, parameter that controls when a cell not considered done
   missing_cells_threshold: 0.10 # fraction, parameter that controls when the workspace is done
+  refinement_cells_threshold: 0.20 # fraction, parameter that controls when the workspace is done
+  refinement_area_threshold: 1.5 # m^2, parameter that controls when the workspace is done
+  ignore_scoop_area: 1.0 # m^2, parameter that controls when the workspace is done
   inactive_area_ratio: 0.95
   active_area_ratio: 0.05
   dumping_distance_weight: 0.1
-  dig_dump_distance_weight: 1.
-  working_dir_weight: 1.0
+  dig_dump_distance_weight: 4.
+  working_dir_weight: 0.1
   excavation_area_ratio: 0.1
-  x_dump_weight: 1.
-  y_dump_weight: 1.
-  dump_cells_weight: 0.1
-  height_traversable_threshold: 1.5
+  x_dump_weight: 0.1
+  y_dump_weight: 0.025
+  dump_cells_weight: 1.0
+  height_traversable_threshold: 1.0
   bonus_volume: 0.00 # m3
   height_dig_area_threshold: 0.1
-  volume_dirt_weight: -1
+  volume_dirt_weight: -0.3
   radial_offset: 0.5
   radial_dirt_offset: 2.0
   vertical_offset: 0.3
   max_dig_depth: 0.35
-  max_dig_dirt_depth: 0.9
+  max_dig_dirt_depth: 0.7
   dragging_distance: 1.5
-  dragging_dirt_distance: 0.0
+  dragging_dirt_distance: 0.1
   dragging_angle: 1.4
+  refinement_angle: 0.8
   closing_z_translation: 0.8
   min_distance_collision: 1.0
+  min_distance_collision_refinement: 1.1
   target_dig_attitude: 0.52
-  target_dig_dirt_attitude: 1.4
+  target_dig_attitude_inner: 1.2
+  target_dig_dirt_attitude: 1.0
+  target_dig_dirt_attitude_inner: 1.4
+  target_refinement_attitude: 0.52
+  target_refinement_attitude_inner: 0.9
   target_height_diff_threshold: 0.3
   min_scoop_volume: 0.15
+  ignore_scoop_volume: 0.05
   low_volume_scoop_attempts: 3
-  footprint_inflation: 1.5
+  footprint_inflation: 1.0
   depth_bias: 0.1
+  refinement_depth_bias: 0.12
   min_elevation_variance: 0.000001
   max_elevation_variance: 0.001
   mark_dug_previous_waypoints: true
   mark_completed_shovel_points_close_to_desired_elevation: true
   dig_zone_shrink_factor: 0.95
   dug_sdf_alpha: 5
-  dug_sdf_beta: 0.5
+  dug_sdf_beta: 0.7
+  workspace_topic: /coverage/workspaces
+  dig_zone_teeth_number: 1
+  refine: true

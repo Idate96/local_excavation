@@ -57,6 +57,7 @@ class Trajectory {
   double scoopedVolume = -10;
   double workspaceVolume = -10;
   double length = 0;
+  double sweptArea = 0; // m^2
   std::vector<double> stepVolumes;
   std::vector<double> otherVolumes;
   std::vector<double> totalVolumes;
@@ -101,10 +102,17 @@ class LocalPlanner {
 
   std::vector<Eigen::Vector3d> digTrajectory(Eigen::Vector3d& base_digPosition);
   void optimizeTrajectory();
-  Trajectory computeTrajectory(Eigen::Vector3d& w_P_wd, std::string targetLayer, int zoneId);
+  void optimizeDigTrajectory();
+  void optimizeRefinementTrajectory();
+  bool refiningWorkspace() { return digZoneId_ == 3; };
+  Trajectory computeTrajectory(Eigen::Vector3d& w_P_wd, std::string targetLayer, bool debug=false);
   Trajectory computeDigTrajectory(Eigen::Vector3d& w_P_wd, std::string targetLayer, bool debug=false);
   Trajectory computeDirtTrajectory(Eigen::Vector3d& w_P_wd, std::string targetLayer, bool debug=false);
+  Trajectory computeRefinementTrajectory(Eigen::Vector3d& w_P_wd, std::string targetLayer, bool debug=false, bool markRefinedArea=false);
+  void markDugAreaAsRefined();
+  double getDigAttitude(double distanceFromBase);
   double volumeObjective(Trajectory trajectory);
+  double sweptAreaObjective(Trajectory trajectory);
   loco_m545::RotationQuaternion findOrientationWorldToShovel(double shovelRollAngle, double shovelPitchAngle, double shovelYawAngle);
   Trajectory getDigTrajectoryWorldFrame(Eigen::Vector3d& w_P_wd);
   void getLayerHeightAlongBoom(std::string layer, std::vector<double>& layerValues, std::vector<double>& distanceFromBase);
@@ -126,6 +134,7 @@ class LocalPlanner {
   double getVolume();
   // zones functions
   bool isDigZoneComplete(int zoneId);
+  bool isRefinementZoneComplete();
   bool isZoneActive(int digZoneId, bool isDigging);
   bool isLocalWorkspaceComplete();
   bool initializeLocalWorkspace();
@@ -136,9 +145,13 @@ class LocalPlanner {
   void sdfDumpingAreas();
   bool isLateralFrontZoneComplete(int zoneId);
   std::vector<int> completedDumpAreas_ = {0, 0, 0, 0};
-  std::vector<int> completedDigAreas_ = {0, 0, 0};
+  std::vector<int> completedDigAreas_ = {0, 0, 0, 0}; // last area is refinement area
+  bool isRefinementComplete() { return completedDigAreas_.at(3); };
+  double missingCellsAreaRatio_ = 0;
   void checkScoopedVolume(double volume);
   double minScoopVolume_;
+  double ignoreScoopVolume_;
+  double ignoreScoopArea_;
   int lowVolumeScoopAttempts_;
 
   void setDigTrajectory(Trajectory& trajectory) { digTrajectory_ = trajectory; };
@@ -173,6 +186,7 @@ class LocalPlanner {
 
   std::unique_ptr<excavation_mapping::ExcavationMapping> excavationMappingPtr_;
   void addPlanningZonesToMap(std::vector<double> values);
+  void addRefinementZoneToMap(double value);
   void createPlanningZones();
   void choosePlanningZones();
   int chooseDigZone();
@@ -183,6 +197,7 @@ class LocalPlanner {
   std::vector<Eigen::Vector2d> getOuterDiggingPatchVertices();
   std::vector<Eigen::Vector2d> getDiggingPatchVertices();
   std::vector<Eigen::Vector2d> getDiggingSawPatchVertices();
+  std::vector<Eigen::Vector2d> getDiggingSawtoothVertices();
   std::vector<Eigen::Vector2d> getLeftFrontPatch();
   std::vector<Eigen::Vector2d> getLeftCircularFrontSegmentPatch();
   std::vector<Eigen::Vector2d> getRightFrontPatch();
@@ -199,16 +214,20 @@ class LocalPlanner {
   // set dig and dump zone
   void setDigZone(int zoneId);
   void setDumpZone(int zoneId);
-  void setWaypointIndex(int index) { waypointIndex_ = index; }
+  void loadWorkspace(double workspaceId = -1);
+  void setCurrentWorkspaceIndex(int index) { currentWorkspaceIndex_ = index; }
+  void createConvexHull(std::vector<Eigen::Vector2d>& points, std::vector<Eigen::Vector2d>& hull);
 
   void getShovelOrientation(std::vector<Eigen::Vector3d>& digPoints, std::vector<Eigen::Quaterniond>& orientations,
                             double draggingDistance, double targetPitch, double initialPitch, double heading);
+  double getHeading(Eigen::Vector3d& w_P_wd);
   // trajectory helpers
   std::vector<Eigen::Vector3d>  smoothZCoordinates(std::vector<Eigen::Vector3d>& trajectory);
   void setWorkingDirection(Eigen::Vector2d& workingDirection) { workingDirection_ = workingDirection; }
   void publishCollisionTrajectory(std::vector<Eigen::Vector3d> pos, std::vector<Eigen::Quaterniond> orientations);
   bool updateShovelCollisionBody(Eigen::Vector3d w_P_ws, Eigen::Quaterniond C_ws);
   void publishCollisionPts(Eigen::Vector3d w_P_wd, Eigen::Quaterniond R_ws_d);
+
 
  private:
   // sub-map representing the reachable workspace of the robot
@@ -236,9 +255,9 @@ class LocalPlanner {
   grid_map::Index dumpPointIndex_;
 
   // trajectory
-  Trajectory digTrajectory_;
-  Trajectory optimalDigTrajectory_;
-  Trajectory dumpTrajectory_;
+  Trajectory digTrajectory_ = Trajectory();
+  Trajectory optimalDigTrajectory_ = Trajectory();
+  Trajectory dumpTrajectory_ = Trajectory();
 
   // self collisions
   excavator_model::ExcavatorModel model_; // copy of the model used for planning
@@ -283,14 +302,15 @@ class LocalPlanner {
   Eigen::Matrix<double, 5, 2> footprint_;
   double footprintInflation_ = 1.0;
 
-  ros::Subscriber globalPathSub_;
-  void globalPathCallback(const geometry_msgs::PoseArray& msg);
-  std::vector<geometry_msgs::Pose> globalPath_;
-  int waypointIndex_ = 0;
+  ros::Subscriber globalWorkspaceSub_;
+  void globalWorkspaceCallback(const geometry_msgs::PoseArray& msg);
+  std::vector<geometry_msgs::Pose> globalWorkspace_;
+  int currentWorkspaceIndex_ = -1;
   void setExcavationMaskAtFutureStates();
-  void setExcavationMaskAtOuterDigZone(grid_map::Polygon& polygon);
+  void setExcavationMaskAtDigZone();
+  void processCurrentExcavationMask();
 
-  std::string pathTopic_;
+  std::string workspaceTopic_;
   std::string footprintTopic_;
 
   // make a ros service to select dig and dump zones
@@ -310,16 +330,20 @@ class LocalPlanner {
   std::vector<grid_map::Polygon> planningZones_;
   std::vector<Eigen::Vector2d> zoneCenters_;
   grid_map::Polygon digZone_;
+  grid_map::Polygon digOuterZone_;
   grid_map::Polygon dumpingLeftFrontZone_;
   grid_map::Polygon dumpingRightFrontZone_;
   grid_map::Polygon dumpingLeftBackZone_;
   grid_map::Polygon dumpingRightBackZone_;
+  grid_map::Polygon refinementZone_;
+  bool doRefinement_;
 
   void createShovelFilter();
   std::vector<Eigen::Vector2d> shovelFilter_;
   // compute volume between shovel pts
   std::tuple<double, double> computeVolumeBetweenShovelPoints(Eigen::Vector3d& w_posLeftShovel_wl, Eigen::Vector3d& w_posRightShovel_wr,
                                                               double previousTerrainElevation);
+  double computeSweptAreaBetweenShovelPoints(Eigen::Vector3d& w_posLeftShovel_wl, Eigen::Vector3d& w_posRightShovel_wr );
   // to speed up completion
   void markAsDugShovelPointsCloseToDesiredElevation();
   bool markDugShovelPointsCloseToDesiredElevation_;
@@ -344,11 +368,13 @@ class LocalPlanner {
   // boolean to indicate whether a reset is needed
   bool createNewZones_ = true;
   double remainingVolumeRatio_;
+  double remainingSweptAreaRatio_;
 
   // optimization weight
   double volumeWeight_;
   double distanceWeight_;
   double headingWeight_;
+  double sweptAreaWeight_;
 
   // parameters
   // dig trajectory depth
@@ -356,8 +382,13 @@ class LocalPlanner {
   double maxDigDirtDepth_;
   double closingZTranslation_;
   double minDistanceCollision_;
+  double minDistanceCollisionRefinement_;
   double targetDigAttitude_;
+  double targetDigAttitudeInner_;
   double targetDigDirtAttitude_;
+  double targetDigDirtAttitudeInner_;
+  double targetRefinementAttitude_;
+  double targetRefinementAttitudeInner_;
   // drag shovel angle
   double draggingAngle_;
   // areas with more than this ratio (dug area / total area) of the total area are considered not active
@@ -384,6 +415,8 @@ class LocalPlanner {
   double volumeThreshold_;
   double heightThreshold_;
   double missingCellsThreshold_;
+  double refinementCellsThreshold_;
+  double refinementAreaThreshold_;
   double volumeDumpThreshold_ = 0.5 * shovelWidth_ * shovelLength_;
   // we don't account the initial volume that goes into the shovel in the penetration phase
   // todo: account properly for it
@@ -393,7 +426,9 @@ class LocalPlanner {
   double heightDirtThreshold_;
   double heightDigAreaThreshold_;
   double digZoneShrinkFactor_;
+  int digZoneTeethNumber_;
   double depthBias_;
+  double refinementDepthBias_;
   double volumeDirtWeight_;
   double heightDumpThreshold_;
   // max volume in the shovel
@@ -406,9 +441,16 @@ class LocalPlanner {
   // index to keep track
   double circularWorkspaceOuterRadius_;
   double circularWorkspaceInnerRadius_;
+  double circularOuterWorkspaceOuterRadius_;
+  double circularOuterWorkspaceInnerRadiusFactor_;
+  double circularOuterWorkspaceInnerRadius_;
+  double circularOuterWorkspaceOuterRadiusFactor_;
+  double circularOuterWorkspaceAngle_;
+  double circularOuterWorkspaceAngleFactor_;
   double dumpingZoneOuterRadius_;
   double dumpingZoneInnerRadius_;
   double minDistanceShovelToBase_;
+  double minDistanceShovelToBaseRefined_;
   double circularWorkspaceAngle_;
   int currentTrackId = 0;
   // param to mark working areas that you can't step over
@@ -419,6 +461,13 @@ class LocalPlanner {
   std::map<int, double> remainingVolumeRatios_;
   std::map<int, double> remainingVolume_;
   std::map<int, double> remainingCellsRatio_;
+  std::map<int, double> workspaceVolumeMap_;
+  std::map<int, double> estimatedWorkspaceVolumeMap_;
+  std::map<int, double> diggingTimeMap_;
+  std::map<int, double> diggingDirtTimeMap_;
+  std::map<int, double> refiningTimeMap_;
+  std::map<int, double> averagePrecision_;
+  void logPrecision();
   void logWorkspaceData();
   // saving params maps
   std::string saveMapPath_;
