@@ -1016,14 +1016,9 @@ namespace local_excavation {
       }
       double volumeSign = 1;
       // we need a volume sign to check weather we are supposed to dig here or not
-<<<<<<< HEAD
       if (planningMap_.at("current_excavation_mask", index) > 0 ||
          (planningMap_.at("excavation_mask", index) == -0.5 && planningMap_.at("planning_zones", index) == 0)) {
         volumeSign = -10;
-=======
-      if (planningMap_.at("current_excavation_mask", index) > -0.51) {
-        volumeSign = -2;
->>>>>>> 5353d8c32eb1b8f07af10a3d36cd355e015b5c2d
       }
       // if the value of terrain elevation is nan do not compute the volume
       //      if (std::isnan(terrainElevation)) {
@@ -1768,28 +1763,15 @@ namespace local_excavation {
         break;
       }
       // compute distance from the base
-<<<<<<< HEAD
       double distanceFromBase = (w_P_next - w_P_wba).norm();
       //    ROS_INFO_STREAM("[LocalPlanner]: distance from base " << startDistanceFromBase);
       if (distanceFromBase < minDistanceShovelToBase_) {
         if (debug) {
           ROS_INFO_STREAM("[LocalPlanner]: distance from base too small, current distance " << distanceFromBase);
         }
-        ROS_INFO_STREAM("[LocalPlanner]: distance from base too small, current distance " << distanceFromBase);
         valid = false;
         break;
       }
-=======
-      // double distanceFromBase = (w_P_next - w_P_wba).norm();
-      // //    ROS_INFO_STREAM("[LocalPlanner]: distance from base " << startDistanceFromBase);
-      // if (distanceFromBase < minDistanceShovelToBase_) {
-      //   if (debug) {
-      //     ROS_INFO_STREAM("[LocalPlanner]: distance from base too small, current distance " << distanceFromBase);
-      //   }
-      //   valid = false;
-      //   break;
-      // }
->>>>>>> 5353d8c32eb1b8f07af10a3d36cd355e015b5c2d
       w_P_wd_current = w_P_next;
       numSteps++;
       //    ROS_INFO_STREAM("[LocalPlanner]: step " << numSteps << " volume " << volume);
@@ -2171,7 +2153,7 @@ namespace local_excavation {
       // append point
       digPoints.push_back(w_P_next);
       digOrientations.push_back(R_ws_d);
-      if planningMap_.at("refinement_zone", nextIndex) == 1){
+      if (planningMap_.at("refinement_zone", nextIndex) == 1){
         numStepsOutsideRefinement = 0;
       } else {
         numStepsOutsideRefinement++;
