@@ -1016,9 +1016,14 @@ namespace local_excavation {
       }
       double volumeSign = 1;
       // we need a volume sign to check weather we are supposed to dig here or not
+<<<<<<< HEAD
       if (planningMap_.at("current_excavation_mask", index) > 0 ||
          (planningMap_.at("excavation_mask", index) == -0.5 && planningMap_.at("planning_zones", index) == 0)) {
         volumeSign = -10;
+=======
+      if (planningMap_.at("current_excavation_mask", index) > -0.51) {
+        volumeSign = -2;
+>>>>>>> 5353d8c32eb1b8f07af10a3d36cd355e015b5c2d
       }
       // if the value of terrain elevation is nan do not compute the volume
       //      if (std::isnan(terrainElevation)) {
@@ -1333,15 +1338,15 @@ namespace local_excavation {
         break;
       }
       // compute distance from the base
-      double distanceFromBase = (w_P_next - w_P_wba).norm();
-      //    ROS_INFO_STREAM("[LocalPlanner]: distance from base " << startDistanceFromBase);
-      if (distanceFromBase < minDistanceShovelToBase_) {
-        if (debug){
-          ROS_INFO_STREAM("[LocalPlanner]: distance from base too small, current distance " << distanceFromBase);
-        }
-        valid = false;
-        break;
-      }
+      // double distanceFromBase = (w_P_next - w_P_wba).norm();
+      // //    ROS_INFO_STREAM("[LocalPlanner]: distance from base " << startDistanceFromBase);
+      // if (distanceFromBase < minDistanceShovelToBase_) {
+      //   if (debug){
+      //     ROS_INFO_STREAM("[LocalPlanner]: distance from base too small, current distance " << distanceFromBase);
+      //   }
+      //   valid = false;
+      //   break;
+      // }
       w_P_wd_current = w_P_next;
       numSteps++;
       //    ROS_INFO_STREAM("[LocalPlanner]: step " << numSteps << " volume " << volume);
@@ -1763,6 +1768,7 @@ namespace local_excavation {
         break;
       }
       // compute distance from the base
+<<<<<<< HEAD
       double distanceFromBase = (w_P_next - w_P_wba).norm();
       //    ROS_INFO_STREAM("[LocalPlanner]: distance from base " << startDistanceFromBase);
       if (distanceFromBase < minDistanceShovelToBase_) {
@@ -1773,6 +1779,17 @@ namespace local_excavation {
         valid = false;
         break;
       }
+=======
+      // double distanceFromBase = (w_P_next - w_P_wba).norm();
+      // //    ROS_INFO_STREAM("[LocalPlanner]: distance from base " << startDistanceFromBase);
+      // if (distanceFromBase < minDistanceShovelToBase_) {
+      //   if (debug) {
+      //     ROS_INFO_STREAM("[LocalPlanner]: distance from base too small, current distance " << distanceFromBase);
+      //   }
+      //   valid = false;
+      //   break;
+      // }
+>>>>>>> 5353d8c32eb1b8f07af10a3d36cd355e015b5c2d
       w_P_wd_current = w_P_next;
       numSteps++;
       //    ROS_INFO_STREAM("[LocalPlanner]: step " << numSteps << " volume " << volume);
@@ -1883,7 +1900,7 @@ namespace local_excavation {
     Eigen::Vector3d w_P_wd_last = smoothedDigPoints.back();
     // get the orientation of the shovel at the last point
     Eigen::Quaterniond R_ws_d_last = smoothedOrientations.back();
-    double horizontalClosingOffset = 0.1;
+    double horizontalClosingOffset = 0.0;
     double verticalClosingOffset = 0.4;
 //    Eigen::Vector3d w_P_d2d3 = w_P_dba.normalized() * scaling;
 //    // get desired height at the end of the trajectory
@@ -3269,7 +3286,7 @@ namespace local_excavation {
       double heightDifference = std::max(0.0, elevation - desiredElevation);
       double heightOriginalDifference = std::max(0.0, originalElevation - desiredElevation);
       int toBeDugArea = planningMap_.at("current_excavation_mask", index);
-      if (heightDifference < heightThreshold_ && heightOriginalDifference > 0.5 && toBeDugArea == -1) {
+      if ((heightDifference < heightThreshold_ && heightOriginalDifference > 0.5 && toBeDugArea == -1) || planningMap_.at("occupancy", index) == 1) {
         planningMap_.at("dug_area", index) = 1;
         planningMap_.at("working_area", index) = 1;
       }
@@ -4380,9 +4397,6 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
         }
       } else {
         // print height and volume
-        // allowed values 
-//        ROS_INFO_STREAM("[LocalPlanner]: findDumpPoint: maxHeightDiff: " << maxHeightDiff << " heightDiffThreshold: " << heightDumpThreshold_);
-//        ROS_INFO_STREAM("[LocalPlanner]: findDumpPoint: filterVolume: " << filterVolume << " volumeThreshold: " << volumeDirtThreshold_);
       }
     }
     //  ROS_INFO_STREAM("[LocalPlanner]: findDumpPoint: best dump point score: " << digPointBestValue);
