@@ -17,6 +17,7 @@
 #include <m545_description/m545_description.hpp>
 #include "grid_map_sdf/SignedDistanceField.hpp"
 #include "local_excavation/planning_utils.h"
+#include <boost/date_time/posix_time/posix_time.hpp>
 
 namespace local_excavation {
 
@@ -191,7 +192,7 @@ namespace local_excavation {
     }
     // min_distance_shovel_to_base_refined
     success = nh_.param<double>("/local_excavation/min_distance_shovel_to_base_refined", minDistanceShovelToBaseRefined_,
-                                    3.5);
+                                    4.2);
     success = nh_.param<double>("/local_excavation/workspace_angle", circularWorkspaceAngle_, M_PI / 2);
     if (!success) {
       ROS_WARN("[LocalPlanner]: Failed to get workspace angle, falling back to default");
@@ -461,6 +462,25 @@ namespace local_excavation {
     if (!success) {
       ROS_WARN("[LocalPlanner]: Failed to get ignore scoop area, falling back to default");
     }
+    // log path
+    success = nh_.param<std::string>("/local_excavation/log_path", logPath_, ros::package::getPath("local_excavation") + "/logs");
+    if (!success) {
+      ROS_WARN("[LocalPlanner]: Failed to get log path, falling back to default path %s", logPath_.c_str());
+    }
+    // log name
+    // default log name: current time dd.mm.yyyy_hh.mm.ss
+    auto time = boost::posix_time::second_clock::local_time();
+    std::string defaultLogName_ = boost::posix_time::to_iso_extended_string(time);
+    // create a directory for the log
+    success = nh_.param<std::string>("/local_excavation/log_name", logName_, defaultLogName_);
+    if (!success) {
+      ROS_WARN("[LocalPlanner]: Failed to get log name, falling back to default name %s", logName_.c_str());
+    }
+    logDir_ = logPath_ + "/" + logName_;
+    boost::filesystem::create_directories(logDir_);
+    logScoopsPath_ = logDir_ + "/scoops.csv";
+    logDigAreaPath_ = logDir_ + "/dig_area.csv";
+
     circularOuterWorkspaceOuterRadius_ = circularWorkspaceOuterRadius_ * circularOuterWorkspaceOuterRadiusFactor_;
     circularOuterWorkspaceInnerRadius_ = circularWorkspaceInnerRadius_ * circularOuterWorkspaceInnerRadiusFactor_;
     circularOuterWorkspaceAngle_ = circularWorkspaceAngle_ * circularOuterWorkspaceAngleFactor_;
@@ -492,6 +512,8 @@ namespace local_excavation {
     //    return false;
     //  }
   };
+
+
 
   void LocalPlanner::globalWorkspaceCallback(const geometry_msgs::PoseArray& msg) {
     std::vector<geometry_msgs::Pose> path;
@@ -705,11 +727,12 @@ namespace local_excavation {
     // mostly for debugging
     planningMap_.add("active_dig_zones", 0);
     planningMap_.add("completed_dig_zone", 0);
-    planningMap_.add("refinement_zones", 0); // for visualization purposes only
+    planningMap_.add("refinement_zone", 0); // for visualization purposes only
     planningMap_.add("refined_zone", 0);
     planningMap_.add("planning_refinement", 0);
     planningMap_.add("active_dump_zones", 0);
     planningMap_.add("cost", 0);
+    // check that desired elevation layer exits
     //  planningMap_["elevation"] = excavationMappingPtr_->gridMap_["elevation"];
     //  planningMap_["original_elevation"] = excavationMappingPtr_->gridMap_["original_elevation"];
     //  planningMap_["desired_elevation"] = excavationMappingPtr_->gridMap_["desired_elevation"];
@@ -727,6 +750,7 @@ namespace local_excavation {
     this->updateWorkingArea();
     //  this->choosePlanningZones();
     this->updateDugZones();
+    this->createLogFiles();
     //  this->updatePlanningMap();
     return true;
   };
@@ -740,45 +764,137 @@ namespace local_excavation {
     previousDigZoneId_ = -1;
     dumpZoneId_ = -1;
     previousDumpZoneId_ = -1;
-    workspaceVolume_ = 0;
+  }
+
+  void LocalPlanner::savePlanningMap(){
+    // save the planning map in the logDir_
+    // name of the map include the currentWorkspaceIndex_
+    std::string mapName = logDir_ + "/planning_map_" + std::to_string(currentWorkspaceIndex_) + ".bag";
+    ROS_INFO("Saving planning map in %s", mapName.c_str());
+    // save the grid_map
+    grid_map::GridMapRosConverter::saveToBag(planningMap_, mapName, "planning_map");
+  }
+
+  void LocalPlanner::createLogFiles(){
+    ROS_INFO_STREAM("[LocalPlanner]: Creating log files at " << logDir_);
+    // create the file
+    std::ofstream logScoopsFile(logScoopsPath_.c_str());
+    // header: scoop_id, dig_area_id, workspace_id, duration, volume, area, estimated_volume
+    logScoopsFile << "scoop_id,dig_area_id,workspace_id,duration,volume,area,estimated_volume" << std::endl;
+    // close it
+    logScoopsFile.close();
+    // create the file
+    std::ofstream logDigAreaFile(logDigAreaPath_.c_str());
+    // header: dig_area_id, workspace_id, duration, area, volume, estimated_volume, missing_volume, missing_cells, missing_cells_ratio,
+    // average_precision, std_precision, num_scoops
+    logDigAreaFile << "dig_area_id,workspace_id,duration,missing_cells_area,missing_cells_area_ratio,volume,missing_volume_ratio,missing_cells,missing_cells_ratio,rms_precision,desired_height,id_scoop_start,id_scoop_end" << std::endl;
+    // close it
+    logDigAreaFile.close();
+  }
+
+  void LocalPlanner::logScoop(Trajectory& traj, double duration, double scoopVolume){
+    // get the scoop volume
+    double volume = scoopVolume;
+    double area = traj.sweptArea;
+    double estimatedVolume = traj.scoopedVolume;
+    int scoop_id = scoopCounter_;
+    scoopCounter_++;
+    int workspace_id = currentWorkspaceIndex_;
+    int dig_area_id = digZoneId_;
+    // header: scoop_id, dig_area_id, workspace_id, duration, volume, area, estimated_volume
+    // add all these values separated by a comma
+    std::ofstream logScoopsFile(logScoopsPath_.c_str(), std::ios_base::app);
+    logScoopsFile << scoop_id << "," << dig_area_id << "," << workspace_id << "," << duration << "," << volume << "," << area << "," << estimatedVolume << std::endl;
+    logScoopsFile.close();
+  }
+
+  void LocalPlanner::logDigArea(int zoneId) {
+    // header: dig_area_id, workspace_id, duration, missing_cells_area, missing_cells_area_ratio, volume, missing_volume_ratio, missing_cells, missing_cells_ratio,
+    // average_precision, std_precision, id_scoop_start, id_scoop_end
+    double dig_time_sec = (digAreaEndTime_ - digAreaStartTime_).toSec(); // 0 for the moment
+    // TODO: clean up and use better abstarctions
+//    DigZone digZone;
+//    digZone.digZoneId = zoneId;
+//    if (digZoneId_ == 0 || digZoneId_ == 3){
+//      digZone.targetLayer = "desired_elevation";
+//      // func that returns a bool and take as input grid_map::index
+//      std::function<bool(const grid_map::Index&)> filter = [this](const grid_map::Index& index) {
+//        return this->planningMap_.at("excavation_mask", index) == -1;
+//      };
+//      this->computeWorkspaceProperties(digZone, filter);
+//    } else {
+//      digZone.targetLayer = "original_elevation";
+//      std::function<bool(const grid_map::Index&)> filter = [&](const grid_map::Index& index) {
+//        return planningMap_.at("current_excavation_mask", index) < 1;};
+//      this->computeWorkspaceProperties(digZone, filter);
+//    }
+    // TODO fix volume computation for zone 0
+    // add variable to file separated by a comma
+    std::ofstream logDigAreaFile(logDigAreaPath_.c_str(), std::ios_base::app);
+//    logDigAreaFile << "dig_area_id,workspace_id,duration,missing_cells_area, missing_cells_area_ratio,missing_volume,volume,missing_cells,missing_cells_ratio,average_precision,std_precision,desired_height,id_scoop_start,id_scoop_end" << std::endl;
+    logDigAreaFile << zoneId << "," << currentWorkspaceIndex_ << "," << dig_time_sec << "," << numMissingCellsArea_ << "," << missingCellsAreaRatio_ << "," << workspaceVolume_ << "," << remainingVolumeRatio_ << "," << numMissingCells_ << "," << missingCellsRatio_ << "," << rmsPrecision_ << "," << desiredAverageHeight_ << "," << startScoopAreaCounter_ << "," << scoopCounter_ << std::endl;
+    logDigAreaFile.close();
   }
 
   void LocalPlanner::updateRobotState(excavator_model::ExcavatorState &excavatorState) {
     // listen to the m545_state message and copy the state into the excavator model
     model_.setState(excavatorState, true, false, false);
   }
-
-  double LocalPlanner::computeWorkspaceVolume(int zoneId, std::string targetLayer) {
+  // third input is a function that takes as input a grid_map::Index and returns a bool
+  void LocalPlanner::computeWorkspaceProperties(DigZone& digZone, std::function<bool(const grid_map::Index&)> filter) {
     // compute the volume of the workspace of the zone
     // by subtracking the elevation layer from the target layer in the area of the zone
     // obtain the volume by summing the difference and multiplying by the resolution^2
-    if (zoneId == -1) {
-      return 0;
+    if (digZone.digZoneId == -1) {
+      return;
     }
-    double workspaceVolume = 0;
+    double missingVolume = 0;
+    double volume = 0;
+    int numMissingCells = 0;
+    int totalNumCells = 0;
+    rmsPrecision_ = 0;
     // ROS_INFO_STREAM("[LocalPlanner]: Computing workspace volume for zone " << zoneId);
     // iterate over the zone cells
-    grid_map::Polygon zonePolygon = planningZones_.at(zoneId);
+    grid_map::Polygon zonePolygon = planningZones_.at(digZone.digZoneId);
     for (grid_map::PolygonIterator iterator(planningMap_, zonePolygon); !iterator.isPastEnd(); ++iterator) {
-      // get the cell coordinates
+      // get the index
       grid_map::Index index(*iterator);
-      // get the elevation value of the cell
-      double elevation = excavationMappingPtr_->gridMap_.at("elevation", index);
-      // get the target value of the cell
-      double target = excavationMappingPtr_->gridMap_.at(targetLayer, index);
-      // subtract the elevation from the target value min 0
-      double difference = std::max(0.0, elevation - target);
-      // if difference is nan skip
-      if (std::isnan(difference)) {
-        continue;
+      if (filter(index)) {
+        // excavation mask value
+        // get the cell coordinates
+        double elevation = planningMap_.at("elevation", index);
+        double originaElevation = planningMap_.at("predig_elevation", index);
+        double desiredElevation = planningMap_.at(digZone.targetLayer, index);
+//          ROS_INFO_STREAM("[LocalPlanner]: desired elevation " << desiredElevation << " elevation " << elevation);
+        double heightDifference = std::max(0.0, elevation - desiredElevation);
+        rmsPrecision_ += std::pow(heightDifference, 2);
+        double originalHeightDifference = std::max(0.0, elevation - originaElevation);
+        if (std::isnan(heightDifference) || std::isnan(originalHeightDifference)) {
+          continue;
+        }
+//                  ROS_INFO_STREAM("[LocalPlanner]: height difference " << heightDifference);
+        //        originalHeightDifference = std::max(0.0, planningMap_.at("original_elevation", index) - desiredElevation);
+        double deltaSoilVolume =
+            heightDifference * planningMap_.getResolution() * planningMap_.getResolution();
+        double deltaOriginalVolume =
+            originalHeightDifference * planningMap_.getResolution() * planningMap_.getResolution();
+
+        if (planningMap_.at("completed_dig_zone", index) != 1) {
+          missingVolume += deltaSoilVolume;
+          if (heightDifference > digZone.heightThreshold) {
+            numMissingCells++;
+          }
+        }
+        totalNumCells++;
+        volume += deltaOriginalVolume;
       }
-      // multiply the difference by the resolution^2
-      double volume = difference * planningMap_.getResolution() * planningMap_.getResolution();
-      // add the volume to the total volume
-      workspaceVolume += volume;
     }
     // ROS_INFO_STREAM("[LocalPlanner]: Workspace volume for zone " << zoneId << " is " << workspaceVolume_);
-    return workspaceVolume;
+    digZone.volume = volume;
+    digZone.missingVolume = missingVolume;
+    digZone.numMissingCells = numMissingCells;
+    digZone.numTotalCells = totalNumCells;
+    digZone.rmsPrecision = rmsPrecision_ / totalNumCells;
   }
 
   std::string LocalPlanner::getTargetDigLayer(int zoneId) {
@@ -2113,7 +2229,7 @@ namespace local_excavation {
     while (valid) {
       Eigen::Vector3d w_P_next = w_P_wd_current + stepSize * w_P_dba;
       // distance from basse
-      double distanceFromBase = (-w_P_next + w_P_wba).norm();
+      double distanceFromBase = (-w_P_next.head(2) + w_P_wba.head(2)).norm();
       double pitch = this->getDigAttitude(distanceFromBase);
       Eigen::Quaterniond R_ws_d = this->get_R_sw(0, -pitch, heading);
       // height is overridden
@@ -2172,7 +2288,7 @@ namespace local_excavation {
 //        valid = false;
 //        break;
 //      }
-      if (distanceFromBase < minDistanceCollisionRefinement_) {
+      if (distanceFromBase < minDistanceShovelToBaseRefined_) {
         valid = false;
         break;
       }
@@ -2214,9 +2330,14 @@ namespace local_excavation {
     }
 
     std::vector<Eigen::Vector3d> smoothedDigPoints;
+    // smoothing points
+//    ROS_INFO_STREAM("[LocalPlanner]: smoothing points, num steps outside refinement " << numStepsOutsideRefinement << " num steps " << digPoints.size());
     // smooth the last numStepsOutOfRefinement dig points
-    if (digPoints.size() > 4){
-      std::vector<Eigen::Vector3d> digPointsToSmooth(digPoints.end() - numStepsOutsideRefinement, digPoints.end());
+    if (numStepsOutsideRefinement > 4){
+      std::vector<Eigen::Vector3d> digPointsToSmooth;
+      for (int i = digPoints.size() - numStepsOutsideRefinement; i < digPoints.size(); i++){
+        digPointsToSmooth.push_back(digPoints.at(i));
+      }
       smoothedDigPoints = this->smoothZCoordinates(digPointsToSmooth);
       // append the rest of the points
       smoothedDigPoints.insert(smoothedDigPoints.begin(), digPoints.begin(), digPoints.end() - numStepsOutsideRefinement);
@@ -2522,7 +2643,7 @@ namespace local_excavation {
     // }
     // raise a warning if the found trajectory is empty
     if (bestTrajectory.positions.size() == 0 || bestTrajectory.workspaceVolume < 0){
-      completedDigAreas_.at(digZoneId_) = 1;
+      this->completeDigArea(digZoneId_);
       ROS_WARN_STREAM("[LocalPlanner]: could not find a valid trajectory in digZoneId_ " << digZoneId_);
     }
     // print expected volume for the best trajectory
@@ -2572,6 +2693,7 @@ namespace local_excavation {
     // //  // print best trajectory relative heading nad distance from base
      ROS_INFO_STREAM("[LocalPlanner]: Best trajectory has relative heading " << bestTrajectory.relativeHeading);
       ROS_INFO_STREAM("[LocalPlanner]: Best trajectory has distance from base " << bestTrajectory.startDistanceFromBase);
+      ROS_INFO_STREAM("[LocalPlanner]: Best trajectory has end distance from base " << bestTrajectory.endDistanceFromBase);
     double sweptAreaCost = sweptAreaWeight_ * bestTrajectory.sweptArea;
     double distanceWeight = missingCellsAreaRatio_  * distanceWeight_ *
                             (bestTrajectory.startDistanceFromBase - circularWorkspaceInnerRadius_) /
@@ -2583,7 +2705,7 @@ namespace local_excavation {
     ROS_INFO_STREAM("[LocalPlanner]: Best trajectory has heading weight " << headingWeight);
     // raise a warning if the found trajectory is empty
     if (bestTrajectory.positions.size() == 0 || bestTrajectory.sweptArea < 0){
-      completedDigAreas_.at(digZoneId_) = 1;
+      this->completeDigArea(digZoneId_);
       ROS_WARN_STREAM("[LocalPlanner]: could not find a valid trajectory in digZoneId_ " << digZoneId_);
     }
     optimalDigTrajectory_ = bestTrajectory;
@@ -2700,6 +2822,8 @@ namespace local_excavation {
     double totalVolume = 0;
     int totalNumCells = 0;
     int numMissingCells = 0;
+    desiredAverageHeight_ = 0;
+    rmsPrecision_ = 0;
 
     for (grid_map::PolygonIterator iterator(planningMap_,
                                             zonePolygon); !iterator.isPastEnd(); ++iterator) {
@@ -2716,26 +2840,27 @@ namespace local_excavation {
       // planningMap_.getPosition(index, position);
       // // print position
       // ROS_INFO_STREAM("[LocalPlanner]: position " << position);
-
-
+      double originalElevation = planningMap_.at("predig_elevation", index);
       if (zoneId == 0 && planningMap_.at("excavation_mask", index) == -1) {
         // get the desired elevation of the point
         double desiredElevation = planningMap_.at("desired_elevation", index);
-        double originalElevation = planningMap_.at("predig_elevation", index);
+        desiredAverageHeight_ += desiredElevation;
         // prevents maps inaccuracies from causing the volumeRatio to be bigger than 1
         if (elevation > originalElevation) {
           originalElevation = elevation;
+        }
+        if (std::isnan(heightDifference) || std::isnan(originalHeightDifference)) {
+          continue;
         }
 
         //  ROS_INFO_STREAM("[LocalPlanner]: desired elevation " << desiredElevation << " elevation " << elevation);
         // get soil volume remaining
         heightDifference = std::max(0.0, elevation - desiredElevation);
+        rmsPrecision_ += heightDifference * heightDifference;
         //        ROS_INFO_STREAM("[LocalPlanner]: height difference " << heightDifference);
         originalHeightDifference = std::max(0.0, originalElevation - desiredElevation);
         // if heightDifference or originalHeightDifference is nan skip
-        if (std::isnan(heightDifference) || std::isnan(originalHeightDifference)) {
-          continue;
-        }
+
         heightThreshold = heightThreshold_;
         // if marked as dug then skip
         //        ROS_INFO_STREAM("[LocalPlanner]: height difference " << heightDifference);
@@ -2758,17 +2883,21 @@ namespace local_excavation {
         double desiredElevation = excavationMappingPtr_->gridMap_.at("original_elevation", index);
 //          ROS_INFO_STREAM("[LocalPlanner]: desired elevation " << desiredElevation << " elevation " << elevation);
         heightDifference = std::max(0.0, elevation - desiredElevation);
-        if (std::isnan(heightDifference)) {
+        if (std::isnan(heightDifference) || std::isnan(originalHeightDifference)) {
           continue;
         }
+        desiredAverageHeight_ += desiredElevation;
+        rmsPrecision_ += heightDifference * heightDifference;
+        originalHeightDifference = std::max(0.0, originalElevation - desiredElevation);
+
 //                  ROS_INFO_STREAM("[LocalPlanner]: height difference " << heightDifference);
         //        originalHeightDifference = std::max(0.0, planningMap_.at("original_elevation", index) - desiredElevation);
         heightThreshold = heightDirtThreshold_;
 
         deltaSoilVolume =
             heightDifference * planningMap_.getResolution() * planningMap_.getResolution();
-        volume += deltaSoilVolume;
-        deltaOriginalVolume = deltaSoilVolume;
+        deltaOriginalVolume =
+            originalHeightDifference * planningMap_.getResolution() * planningMap_.getResolution();
 
         if (planningMap_.at("completed_dig_zone", index) != 1) {
           volume += deltaSoilVolume;
@@ -2780,8 +2909,13 @@ namespace local_excavation {
         totalVolume += deltaOriginalVolume;
       }
     }
+    rmsPrecision_ = sqrt(rmsPrecision_ / totalNumCells);
+    desiredAverageHeight_ = desiredAverageHeight_ / totalNumCells;
+    // print them rms and desired average height
+    ROS_INFO_STREAM("[LocalPlanner]: rms precision " << rmsPrecision_);
+    ROS_INFO_STREAM("[LocalPlanner]: desired average height " << desiredAverageHeight_);
 
-      ROS_INFO_STREAM("[LocalPlanner]: Volume remaining in zone " << zoneId << " is " << volume);
+    ROS_INFO_STREAM("[LocalPlanner]: Volume remaining in zone " << zoneId << " is " << volume);
 //    if (zoneId > 0){
 //      ROS_INFO_STREAM("[LocalPlanner]: Total volume to remove is " << digZonesVolume_.at(zoneId));
 //    }
@@ -2790,12 +2924,9 @@ namespace local_excavation {
     //  ROS_INFO_STREAM("[LocalPlanner]: Number of missing cells is " << numMissingCells);
     //  ROS_INFO_STREAM("[LocalPlanner]: Volume ratio: " << volume / totalVolume);
     //  ROS_INFO_STREAM("[LocalPlanner]: Number of missing cells ratio: " << (double) numMissingCells / totalNumCells);
-    if (zoneId == 0) {
-      remainingVolumeRatio_ = volume / totalVolume;
-    } else {
-      ROS_INFO_STREAM("[LocalPlanner]: Volume ratio: " << volume / digZonesVolume_.at(zoneId));
-      remainingVolumeRatio_ = volume / digZonesVolume_.at(zoneId);
-    }
+    remainingVolumeRatio_ = volume / totalVolume;
+    workspaceVolume_ = totalVolume;
+    remainingVolume_ = volume;
     ROS_INFO_STREAM("[LocalPlanner]: Workspace volume " << workspaceVolume_);
     // if nan throw error
     if (std::isnan(remainingVolumeRatio_)) {
@@ -2808,40 +2939,42 @@ namespace local_excavation {
       ROS_WARN("[LocalPlanner]: Volume ratio is bigger than 1");
       remainingVolumeRatio_ = 1.0;
     }
-    double missingCellsRatio = (double) numMissingCells / totalNumCells;
+    numTotalCells_ = totalNumCells;
+    numMissingCells_ = numMissingCells;
+    missingCellsRatio_ = (double) numMissingCells / totalNumCells;
 //    ROS_INFO_STREAM(
 //        "[LocalPlanner]: missing num cells " << numMissingCells << " total num cells " << totalNumCells);
     ROS_INFO_STREAM("#########################");
     // print workspace id and zone id
     ROS_INFO_STREAM("[LocalPlanner]: Workspace id " << currentWorkspaceIndex_ << " zone id " << zoneId);
-    ROS_INFO_STREAM("[LocalPlanner]: missing cell ratio: " << missingCellsRatio);
+    ROS_INFO_STREAM("[LocalPlanner]: missing cell ratio: " << missingCellsRatio_);
     ROS_INFO_STREAM("[LocalPlanner]: Volume ratio: " << remainingVolumeRatio_);
     ROS_INFO_STREAM("#########################");
     if (digZoneId_ == 0) {
-      completed = (remainingVolumeRatio_ < volumeThreshold_) || (missingCellsRatio < missingCellsThreshold_);
+      completed = (remainingVolumeRatio_ < volumeThreshold_) || (missingCellsRatio_ < missingCellsThreshold_);
       if (completed){
         // sometimes due to noise of the sensors a zone gets dug multiple times even though it's finished.
-//        ROS_INFO_STREAM("[LocalPlanner]: Zone " << zoneId << " is finished");
+        ROS_INFO_STREAM("[LocalPlanner]: Zone " << zoneId << " is finished");
         // if the map remainingVolumeRatio_ does not have a value for the current currentWorkspaceIndex_, set it to the current
         // remainingVolumeRatio_
-        if (remainingVolumeRatios_.find(currentWorkspaceIndex_) == remainingVolumeRatios_.end()) {
-          remainingVolumeRatios_.insert(std::pair<int, double>(currentWorkspaceIndex_, remainingVolumeRatio_));
+        if (remainingVolumeRatiosMap_.find(currentWorkspaceIndex_) == remainingVolumeRatiosMap_.end()) {
+          remainingVolumeRatiosMap_.insert(std::pair<int, double>(currentWorkspaceIndex_, remainingVolumeRatio_));
         }
-        if (remainingVolume_.find(currentWorkspaceIndex_) == remainingVolume_.end()) {
-          remainingVolume_.insert(std::pair<int, double>(currentWorkspaceIndex_, volume));
+        if (remainingVolumeMap_.find(currentWorkspaceIndex_) == remainingVolumeMap_.end()) {
+          remainingVolumeMap_.insert(std::pair<int, double>(currentWorkspaceIndex_, volume));
         }
-        if (remainingCellsRatio_.find(currentWorkspaceIndex_) == remainingCellsRatio_.end()) {
-          remainingCellsRatio_.insert(std::pair<int, double>(currentWorkspaceIndex_, missingCellsRatio));
+        if (remainingCellsRatioMap_.find(currentWorkspaceIndex_) == remainingCellsRatioMap_.end()) {
+          remainingCellsRatioMap_.insert(std::pair<int, double>(currentWorkspaceIndex_, missingCellsRatio_));
         }
       }
     } else {
-      completed = missingCellsRatio < missingCellsThreshold_;
+      completed = missingCellsRatio_ < missingCellsThreshold_;
     }
     //  if (completed) {
     //    ROS_INFO_STREAM("[LocalPlanner]: Dig zone " << zoneId << " is completed!");
     //  }
     if (completed){
-      completedDigAreas_.at(zoneId) = 1;
+      this->completeDigArea(zoneId);
 //      ROS_INFO_STREAM("[LocalPlanner]: Dig zone " << zoneId << " is completed!");
     }
     return completed;
@@ -2855,7 +2988,7 @@ namespace local_excavation {
     // check if the refinement zone is completed
     grid_map::Polygon zonePolygon = refinementZone_;
     int totalNumCells = 0;
-    int missingNumCells = 0;
+    numMissingCellsArea_ = 0;
     double area = 0;
     // iterate over the zone and count the number of the cells that are not completed
     // in the layer "refinement_zone". Do not count in teh totalNumCells, cells that are not dug (i.e 0 in layer "dug_area")
@@ -2866,23 +2999,23 @@ namespace local_excavation {
       if (planningMap_.at("dug_area", index) == 1) {
         totalNumCells++;
         if (planningMap_.at("refined_zone", index) != 1) {
-          missingNumCells++;
+          numMissingCellsArea_++;
           area += planningMap_.getResolution() * planningMap_.getResolution();
         }
       }
     }
     // print area and mi
     ROS_INFO_STREAM("[LocalPlanner::isRefinementZoneComplete]: Total number of cells in refinement zone is " << totalNumCells);
-    ROS_INFO_STREAM("[LocalPlanner::isRefinementZoneComplete]: Number of missing cells in refinement zone is " << missingNumCells);
+    ROS_INFO_STREAM("[LocalPlanner::isRefinementZoneComplete]: Number of missing cells in refinement zone is " << numMissingCellsArea_);
     ROS_INFO_STREAM("[LocalPlanner::isRefinementZoneComplete]: Area of missing cells in refinement zone is " << area);
-    missingCellsAreaRatio_ = (double) missingNumCells / totalNumCells;
+    missingCellsAreaRatio_ = (double) numMissingCellsArea_ / totalNumCells;
     ROS_INFO_STREAM("[LocalPlanner::isRefinementZoneComplete]: Missing cell ratio is " << missingCellsAreaRatio_);
     ROS_INFO_STREAM("[LocalPlanner::isRefinementZoneComplete]: Area threshold is " << refinementAreaThreshold_);
     ROS_INFO_STREAM("[LocalPlanner::isRefinementZoneComplete]: cell threshold is " << refinementCellsThreshold_);
 
     if (missingCellsAreaRatio_ < refinementCellsThreshold_ || area < refinementAreaThreshold_) {
       ROS_INFO_STREAM("[LocalPlanner::isRefinementZoneComplete]: Refinement zone is completed!");
-      completedDigAreas_.at(3) = 1;
+      this->completeDigArea(3);
       return true;
     }
     return false;
@@ -2937,8 +3070,15 @@ namespace local_excavation {
     if (lowVolumeScoopCounter_ > lowVolumeScoopAttempts_){
       ROS_WARN("[LocalPlanner]: Scooped volume is less than minimum threshold volume for too long, dig zone is completed");
       lowVolumeScoopCounter_ = 0;
-      completedDigAreas_.at(digZoneId_) = 1;
+      this->completeDigArea(digZoneId_);
     }
+  }
+
+  void LocalPlanner::completeDigArea(int zoneId){
+    ROS_INFO_STREAM("[LocalPlanner::completeDigArea]: Completing dig area " << digZoneId_);
+    completedDigAreas_.at(zoneId) = 1;
+    this->logDigArea(zoneId);
+    startScoopAreaCounter_ = scoopCounter_;
   }
 
   bool LocalPlanner::initializeLocalWorkspace(){
@@ -2949,6 +3089,7 @@ namespace local_excavation {
     this->createPlanningZones();
     return true;
   }
+
   bool LocalPlanner::isLocalWorkspaceComplete() {
     // if both dig zone is -1 then the local workspace is complete
     // time each step with chrono
@@ -2978,13 +3119,12 @@ namespace local_excavation {
     //  ROS_INFO_STREAM("[LocalPlanner]: Local workspace is not complete!");
     if (digZoneId_ == -1) {
       ROS_INFO_STREAM("[LocalPlanner]: Local workspace is complete!");
+      this->savePlanningMap();
       return true;
     } else {
       return false;
     }
     // create a new thread and call the function logWorkspaceData
-    std::thread logWorkspaceDataThread(std::bind(&LocalPlanner::logWorkspaceData, this));
-    logWorkspaceDataThread.detach();
   }
 
   bool LocalPlanner::isLateralFrontZoneComplete(int zoneId) {
@@ -3099,7 +3239,6 @@ namespace local_excavation {
     // if the dig zone changed from the previous iteration, then we need to update the current workspace volume
     if (digZoneId_ != previousDigZoneId_) {
       previousDigZoneId_ = digZoneId_;
-      workspaceVolume_ = this->computeWorkspaceVolume(digZoneId_, this->getTargetDigLayer(digZoneId_));
     }
     // safety checks
     if (digZoneId_ != -1) {
@@ -3830,15 +3969,15 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
     planningMap_["predig_elevation"] = planningMap_["elevation"];
     // compute the volumes of the dig zones
     std::string targetLayer;
-    digZonesVolume_.clear();
-    for (int i = 0; i < 3; i++) {
-      if (i == 0){
-        targetLayer = "desired_elevation";
-      } else {
-        targetLayer = "original_elevation";
-      }
-      digZonesVolume_.push_back(this->computeWorkspaceVolume(i, targetLayer));
-    }
+//    digZonesVolume_.clear();
+//    for (int i = 0; i < 3; i++) {
+//      if (i == 0){
+//        targetLayer = "desired_elevation";
+//      } else {
+//        targetLayer = "original_elevation";
+//      }
+//      digZonesVolume_.push_back(this->computeWorkspaceVolume(i, targetLayer));
+//    }
     // clear the completed_dig_zone layer
     planningMap_["completed_dig_zone"].setConstant(0);
     //  ROS_INFO_STREAM("[LocalPlanner]: planning zones created");
@@ -5504,18 +5643,4 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
     desiredPosePublisher_.publish(pose);
   }
 
-  void LocalPlanner::logWorkspaceData(){
-    // log workspace data
-    std::ofstream workspace_data;
-    // get ros package path
-    std::string package_path = ros::package::getPath("local_excavation");
-    std::string file_path = package_path + "/log/workspace_data.txt";
-    workspace_data.open(file_path, std::ios::app);
-    // save the maps remainingVolumeRatio_, reaminingVolume_, remainingCellsRatio_ to the file
-    // with the format waypointIndex, remainingVolumeRatio, remainingVolume, remainingCellsRatio
-    for (int i = 0; i < remainingVolumeRatios_.size(); i++) {
-      workspace_data << i << "," << remainingVolumeRatios_[i] << "," << remainingVolume_[i] << "," << remainingCellsRatio_[i] << std::endl;
-    }
-    workspace_data.close();
-  }
 }  // namespace local_excavation

@@ -7,8 +7,8 @@ local_excavation:
   outer_workspace_outer_radius_factor: 1.1
   outer_workspace_inner_radius_factor: 1.0
   outer_workspace_angle_factor: 1.01
-  min_distance_shovel_to_base: 2.8 # in meters
-  min_distance_shovel_to_base_refined: 4.0
+  min_distance_shovel_to_base: 3.5 # in meters
+  min_distance_shovel_to_base_refined: 4.4
   workspace_angle: 1.9 # radians
   max_volume: 0.8 # soil volume in m^3
   max_dirt_volume: 0.8
@@ -20,7 +20,7 @@ local_excavation:
   volume_dirt_threshold: 3.0
   height_dirt_threshold: 0.2
   height_dump_threshold: 2.0
-  volume_threshold: 0.15 # in m^3, parameter that controls when the workspace is done
+  volume_threshold: 0.08 # in m^3, parameter that controls when the workspace is done
   height_threshold: 0.10 # in meters, parameter that controls when a cell not considered done
   missing_cells_threshold: 0.10 # fraction, parameter that controls when the workspace is done
   refinement_cells_threshold: 0.20 # fraction, parameter that controls when the workspace is done
@@ -62,8 +62,8 @@ local_excavation:
   ignore_scoop_volume: 0.05
   low_volume_scoop_attempts: 3
   footprint_inflation: 1.0
-  depth_bias: 0.1
-  refinement_depth_bias: 0.12
+  depth_bias: 0.0
+  refinement_depth_bias: 0.02
   min_elevation_variance: 0.000001
   max_elevation_variance: 0.001
   mark_dug_previous_waypoints: true

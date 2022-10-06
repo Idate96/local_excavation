@@ -63,6 +63,37 @@ class Trajectory {
   std::vector<double> totalVolumes;
 };
 
+// DigArea data structure for logging
+// workspace id, average precision, std precision, dig time, missing cells, missing volume,
+// scoop id start, scoop id end
+struct DigZone {
+  int workspaceId;
+  int digZoneId;
+  std::string targetLayer;
+  double heightThreshold;
+  double rmsPrecision;
+  double digTime; // seconds
+  double volume; // m^3
+  double area; // m^2
+  int numMissingCells;
+  int numTotalCells;
+  double missingVolume;
+  double missingArea;
+  int scoopIdStart;
+  int scoopIdEnd;
+};
+
+struct Scoop {
+  int workspaceId;
+  int digAreaId;
+  int scoopId;
+  double volume; // m^3
+  double area; // m^2
+  double estimatedVolume; // m^3
+  double duration; // seconds
+
+};
+
 class LocalPlanner {
  public:
   LocalPlanner(std::unique_ptr<excavation_mapping::ExcavationMapping> excavationMapping);
@@ -77,7 +108,7 @@ class LocalPlanner {
    * @return
    */
   bool updatePlanningMap();
-  double computeWorkspaceVolume(int zoneId, std::string targetLayer);
+  void computeWorkspaceProperties(DigZone& digZone, std::function<bool(const grid_map::Index&)> filter);
   std::string getTargetDigLayer(int zoneId);
   grid_map::GridMap& getPlanningMap() { return planningMap_; }
   void setLocalMap(grid_map::GridMap& localMap);
@@ -146,8 +177,10 @@ class LocalPlanner {
   bool isLateralFrontZoneComplete(int zoneId);
   std::vector<int> completedDumpAreas_ = {0, 0, 0, 0};
   std::vector<int> completedDigAreas_ = {0, 0, 0, 0}; // last area is refinement area
+  void completeDigArea(int zoneId);
   bool isRefinementComplete() { return completedDigAreas_.at(3); };
   double missingCellsAreaRatio_ = 0;
+  int numMissingCellsArea_ = 0;
   void checkScoopedVolume(double volume);
   double minScoopVolume_;
   double ignoreScoopVolume_;
@@ -216,6 +249,8 @@ class LocalPlanner {
   void setDumpZone(int zoneId);
   void loadWorkspace(double workspaceId = -1);
   void setCurrentWorkspaceIndex(int index) { currentWorkspaceIndex_ = index; }
+  int getCurrentWorkspaceIndex() { return currentWorkspaceIndex_; }
+  int getDigZoneId() { return digZoneId_; }
   void createConvexHull(std::vector<Eigen::Vector2d>& points, std::vector<Eigen::Vector2d>& hull);
 
   void getShovelOrientation(std::vector<Eigen::Vector3d>& digPoints, std::vector<Eigen::Quaterniond>& orientations,
@@ -227,7 +262,21 @@ class LocalPlanner {
   void publishCollisionTrajectory(std::vector<Eigen::Vector3d> pos, std::vector<Eigen::Quaterniond> orientations);
   bool updateShovelCollisionBody(Eigen::Vector3d w_P_ws, Eigen::Quaterniond C_ws);
   void publishCollisionPts(Eigen::Vector3d w_P_wd, Eigen::Quaterniond R_ws_d);
-
+  void logPrecision();
+  void logScoop(Trajectory& traj, double duration, double volume);
+  void logDigArea(int zoneId);
+  void createLogFiles();
+  void savePlanningMap();
+  // digAreaDuration
+  ros::Time digAreaStartTime_;
+  ros::Time digAreaEndTime_;
+  std::string logPath_;
+  std::string logName_;
+  std::string logDir_;
+  std::string logScoopsPath_;
+  std::string logDigAreaPath_;
+  int scoopCounter_ = 0;
+  int startScoopAreaCounter_ = 0;
 
  private:
   // sub-map representing the reachable workspace of the robot
@@ -353,6 +402,9 @@ class LocalPlanner {
   double minElevationVar_;
   double maxElevationVar_;
 
+  void computeDesiredAverageHeight();
+  double desiredAverageHeight_;
+
   // to facilitate restart
   bool markDugPreviousWaypoints_ = false;
 
@@ -361,13 +413,21 @@ class LocalPlanner {
   int previousDumpZoneId_ = -1;
   int dumpZoneId_ = -1;
   int digZoneId_ = -1;
+
   // workspace volume
   double workspaceVolume_;
+  double estimatedWorkspaceVolume_ = 0;
   std::vector<double> digZonesVolume_;
 
   // boolean to indicate whether a reset is needed
   bool createNewZones_ = true;
   double remainingVolumeRatio_;
+  double missingCellsRatio_;
+  double remainingVolume_;
+  double rmsPrecision_;
+  double volume_;
+  double numMissingCells_;
+  double numTotalCells_;
   double remainingSweptAreaRatio_;
 
   // optimization weight
@@ -458,17 +518,15 @@ class LocalPlanner {
   double targetHeightDiffThreshold_;
   // workspace logging
   // dictionary with key the waypoint index and as value the remaining volume ratio
-  std::map<int, double> remainingVolumeRatios_;
-  std::map<int, double> remainingVolume_;
-  std::map<int, double> remainingCellsRatio_;
+  std::map<int, double> remainingVolumeRatiosMap_;
+  std::map<int, double> remainingVolumeMap_;
+  std::map<int, double> remainingCellsRatioMap_;
   std::map<int, double> workspaceVolumeMap_;
   std::map<int, double> estimatedWorkspaceVolumeMap_;
   std::map<int, double> diggingTimeMap_;
   std::map<int, double> diggingDirtTimeMap_;
   std::map<int, double> refiningTimeMap_;
-  std::map<int, double> averagePrecision_;
-  void logPrecision();
-  void logWorkspaceData();
+
   // saving params maps
   std::string saveMapPath_;
   // recovery behaviour
