@@ -3681,8 +3681,6 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
     // get vertices for the zones
     std::vector<Eigen::Vector2d> b_PosDigOuter_bd = getOuterDiggingPatchVertices();
     std::vector<Eigen::Vector2d> b_PosDigVertex_bd = getDiggingSawtoothVertices();
-    std::vector<Eigen::Vector2d> b_PosDumpFrontLeft_bdu = getLeftFrontPatch();
-    std::vector<Eigen::Vector2d> b_PosDumpFrontRight_bdu = getRightFrontPatch();
     std::vector<Eigen::Vector2d> b_PosDumpBackLeft_bdu = getLeftBackPatch();
     std::vector<Eigen::Vector2d> b_PosDumpBackRight_bdu = getRightBackPatch();
 
@@ -3695,6 +3693,8 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
     // diggingFrame_ defines the frame in which the vertices are defined
     switch (diggingFrame_) {
       case BASE: {
+        std::vector<Eigen::Vector2d> b_PosDumpFrontLeft_bdu = getLeftFrontPatch();
+        std::vector<Eigen::Vector2d> b_PosDumpFrontRight_bdu = getRightFrontPatch();
         // base frame
         // compute the zones centers by averaging the coordinates of the vertices
         Eigen::Vector2d frontZoneCenter;
@@ -3835,6 +3835,8 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
           w_PosOuterDigVertex_wd.push_back(vertex_w);
         }
 
+        std::vector<Eigen::Vector2d> b_PosDumpFrontLeft_bdu = getLeftFrontPatchAdaptive(w_PosDigVertex_bd);
+        std::vector<Eigen::Vector2d> b_PosDumpFrontRight_bdu = getRightFrontPatchAdaptive(w_PosDigVertex_bd);
         // get the center
         invalidVerteces = 0;
         for (Eigen::Vector2d vertex: b_PosDumpFrontLeft_bdu) {
@@ -4033,6 +4035,84 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
   }
 
   double LocalPlanner::getHeading(Eigen::Vector3d& w_P_wd){
+//    geometry_msgs::TransformStamped T_mba;
+//    // get transform from base to cabin frame
+//    try {
+//      T_mba = tfBuffer_->lookupTransform("map", "BASE", ros::Time(0));
+//    } catch (tf2::TransformException &ex) {
+//      ROS_WARN("%s", ex.what());
+//      ros::Duration(1.0).sleep();
+//    }
+//    // get the position of the BASE in the map frame
+//    Eigen::Vector3d w_P_wba = Eigen::Vector3d(T_mba.transform.translation.x, T_mba.transform.translation.y,
+//                                              T_mba.transform.translation.z);
+//    //  ROS_INFO_STREAM("Base origin in map frame: " << w_P_wba.transpose());
+//    double roll_b, pitch_b, yaw_b;
+//    tf2::Quaternion R_mba_q =
+//        tf2::Quaternion(T_mba.transform.rotation.x, T_mba.transform.rotation.y, T_mba.transform.rotation.z,
+//                        T_mba.transform.rotation.w);
+//    tf2::Matrix3x3(R_mba_q).getRPY(roll_b, pitch_b, yaw_b);
+//    // base to digging point in world frame
+//    Eigen::Vector3d w_P_bad = w_P_wd - w_P_wba;
+    //  ROS_INFO_STREAM("[LocalPlanner]: digging point wrt base in world frame: " << w_P_bad.transpose());
+    // transform from world to base frame using R_mba
+    // convert R_mba to eigen quaternion
+    Eigen::Quaterniond R_mba_qe = this->getOrientation();
+    // get the yaw from the quaternion
+    double yaw_mba = R_mba_qe.toRotationMatrix().eulerAngles(0, 1, 2)(2);
+//    // transform w_P_bad from world to base frame using R_mba
+//    Eigen::Vector3d ba_P_bad = R_mba_qe.inverse() * w_P_bad;
+//
+//    // relative heading
+//    //   ROS_INFO_STREAM("[LocalPlanner]: digging point wrt base in base frame: " << ba_P_bad.transpose());
+//    double relativeHeading = atan2(ba_P_bad(1), ba_P_bad(0));
+    double relativeHeading = this->getRelativeHeading(w_P_wd);
+    //   ROS_INFO_STREAM("Base heading in map frame: " <<  yaw_b);
+    //   ROS_INFO_STREAM("[LocalPlanner]: opt traj relative heading is " << relativeHeading);
+    double heading = -yaw_mba - relativeHeading;
+    //   ROS_INFO_STREAM("[LocalPlanner]: opt traj heading is " << heading);
+    return heading;
+  }
+
+  double LocalPlanner::getRelativeHeading(Eigen::Vector3d& w_P_wd){
+    Eigen::Vector3d w_P_wba = this->getBasePosition();
+    Eigen::Vector3d w_P_bad = w_P_wd - w_P_wba;
+
+    Eigen::Quaterniond R_mba_qe = this->getOrientation();
+    // get the yaw from the quaternion
+    double yaw_mba = R_mba_qe.toRotationMatrix().eulerAngles(0, 1, 2)(2);
+    // transform w_P_bad from world to base frame using R_mba
+    Eigen::Vector3d ba_P_bad = R_mba_qe.inverse() * w_P_bad;
+
+    // relative heading
+    //   ROS_INFO_STREAM("[LocalPlanner]: digging point wrt base in base frame: " << ba_P_bad.transpose());
+    double relativeHeading = atan2(ba_P_bad(1), ba_P_bad(0));
+    //   ROS_INFO_STREAM("Base heading in map frame: " <<  yaw_b)
+    return relativeHeading;
+  }
+
+  Eigen::Quaterniond LocalPlanner::getOrientation(){
+    geometry_msgs::TransformStamped T_mba;
+    // get transform from base to cabin frame
+    try {
+      T_mba = tfBuffer_->lookupTransform("map", "BASE", ros::Time(0));
+    } catch (tf2::TransformException &ex) {
+      ROS_WARN("%s", ex.what());
+      ros::Duration(1.0).sleep();
+    }
+//    // get the position of the BASE in the map frame
+//    Eigen::Vector3d w_P_wba = Eigen::Vector3d(T_mba.transform.translation.x, T_mba.transform.translation.y,
+//                                              T_mba.transform.translation.z);
+    //  ROS_INFO_STREAM("Base origin in map frame: " << w_P_wba.transpose());
+//    double roll_b, pitch_b, yaw_b;
+    tf2::Quaternion R_mba_q =
+        tf2::Quaternion(T_mba.transform.rotation.x, T_mba.transform.rotation.y, T_mba.transform.rotation.z,
+                        T_mba.transform.rotation.w);
+    Eigen::Quaterniond R_mba_qe(R_mba_q.w(), R_mba_q.x(), R_mba_q.y(), R_mba_q.z());
+    return R_mba_qe;
+  }
+
+  Eigen::Vector3d LocalPlanner::getBasePosition(){
     geometry_msgs::TransformStamped T_mba;
     // get transform from base to cabin frame
     try {
@@ -4044,29 +4124,7 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
     // get the position of the BASE in the map frame
     Eigen::Vector3d w_P_wba = Eigen::Vector3d(T_mba.transform.translation.x, T_mba.transform.translation.y,
                                               T_mba.transform.translation.z);
-    //  ROS_INFO_STREAM("Base origin in map frame: " << w_P_wba.transpose());
-    double roll_b, pitch_b, yaw_b;
-    tf2::Quaternion R_mba_q =
-        tf2::Quaternion(T_mba.transform.rotation.x, T_mba.transform.rotation.y, T_mba.transform.rotation.z,
-                        T_mba.transform.rotation.w);
-    tf2::Matrix3x3(R_mba_q).getRPY(roll_b, pitch_b, yaw_b);
-    // base to digging point in world frame
-    Eigen::Vector3d w_P_bad = w_P_wd - w_P_wba;
-    //  ROS_INFO_STREAM("[LocalPlanner]: digging point wrt base in world frame: " << w_P_bad.transpose());
-    // transform from world to base frame using R_mba
-    // convert R_mba to eigen quaternion
-    Eigen::Quaterniond R_mba_qe(R_mba_q.w(), R_mba_q.x(), R_mba_q.y(), R_mba_q.z());
-    // transform w_P_bad from world to base frame using R_mba
-    Eigen::Vector3d ba_P_bad = R_mba_qe.inverse() * w_P_bad;
-
-    // relative heading
-    //   ROS_INFO_STREAM("[LocalPlanner]: digging point wrt base in base frame: " << ba_P_bad.transpose());
-    double relativeHeading = atan2(ba_P_bad(1), ba_P_bad(0));
-    //   ROS_INFO_STREAM("Base heading in map frame: " <<  yaw_b);
-    //   ROS_INFO_STREAM("[LocalPlanner]: opt traj relative heading is " << relativeHeading);
-    double heading = -yaw_b - relativeHeading;
-    //   ROS_INFO_STREAM("[LocalPlanner]: opt traj heading is " << heading);
-    return heading;
+    return w_P_wba;
   }
 
   double LocalPlanner::shovelDistanceFromZone(int zoneId) {
@@ -4723,12 +4781,12 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
     return vertices;
   }
 
-  std::vector<Eigen::Vector2d> LocalPlanner::getLeftFrontPatch() {
+  std::vector<Eigen::Vector2d> LocalPlanner::getLeftFrontPatch(double startAngle) {
     // the dumping patch is approximated by a semicircle with radius dumpingOuterRadius_;
     // that spans from the angle pi 1/5 to 1/2 pi
     // the circle is sampled at 10 points
     int numPoints = 15;
-    double startAngle = M_PI / 4;
+//    double startAngle = M_PI / 4;
     double endAngle = M_PI / 2;
     std::vector<Eigen::Vector2d> vertices;
     for (int i = 0; i < numPoints; i++) {
@@ -4746,6 +4804,70 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
       vertices.push_back(vertex);
     }
 //    this->publishWorkspacePts(vertices, "BASE");
+    return vertices;
+  }
+
+  std::vector<Eigen::Vector2d> LocalPlanner::getLeftFrontPatchAdaptive(std::vector<Eigen::Vector2d>& w_digPatch){
+    // transform the list of vertices into a grid map poligong
+    grid_map::Polygon polygon;
+    for (int i = 0; i < w_digPatch.size(); i++) {
+      polygon.addVertex(w_digPatch.at(i));
+    }
+    // we wanna find out the highest relative heading of points inside the poligon whose
+    // values in the layer current_excavation_mask of planningMap_ are <= -0.5
+    // to find the heading use this->getRelativeHeading(w_Pos)
+    double maxRelHeading = - circularWorkspaceAngle_ / 2;
+    for (grid_map::PolygonIterator iterator(planningMap_, polygon); !iterator.isPastEnd(); ++iterator) {
+      const grid_map::Index index(*iterator);
+      if (planningMap_.at("current_excavation_mask", index) <= -0.5) {
+        // get the relative heading of the point
+        grid_map::Position w_Pos2d;
+        planningMap_.getPosition(index, w_Pos2d);
+        Eigen::Vector3d w_Pos3d(w_Pos2d(0), w_Pos2d(1), 0);
+        double relHeading = this->getRelativeHeading(w_Pos3d);
+        // if the relative heading is higher than the current max, update the max
+        if (relHeading > maxRelHeading) {
+          maxRelHeading = relHeading;
+        }
+      }
+    }
+    // print max heading
+    ROS_INFO_STREAM("[LocalPlanner::getLeftFrontPatchAdaptive] maxHeading: " << maxRelHeading);
+    double epsilonAngle = 0.1;
+    // create a dig right zone with startAngle = maxHeading + epsilonAngle
+    std::vector<Eigen::Vector2d> vertices = this->getLeftFrontPatch(maxRelHeading + epsilonAngle);
+    return vertices;
+  }
+
+  std::vector<Eigen::Vector2d> LocalPlanner::getRightFrontPatchAdaptive(std::vector<Eigen::Vector2d>& w_digPatch){
+    // transform the list of vertices into a grid map poligong
+    grid_map::Polygon polygon;
+    for (int i = 0; i < w_digPatch.size(); i++) {
+      polygon.addVertex(w_digPatch.at(i));
+    }
+    // we wanna find out the lowest relative heading of points inside the poligon whose
+    // values in the layer current_excavation_mask of planningMap_ are <= -0.5
+    // to find the heading use this->getRelativeHeading(w_Pos)
+    double minRelHeading = circularWorkspaceAngle_ / 2;
+    for (grid_map::PolygonIterator iterator(planningMap_, polygon); !iterator.isPastEnd(); ++iterator) {
+      const grid_map::Index index(*iterator);
+      if (planningMap_.at("current_excavation_mask", index) <= -0.5) {
+        // get the relative heading of the point
+        grid_map::Position w_Pos2d;
+        planningMap_.getPosition(index, w_Pos2d);
+        Eigen::Vector3d w_Pos3d(w_Pos2d(0), w_Pos2d(1), 0);
+        double relHeading = this->getRelativeHeading(w_Pos3d);
+        // if the relative heading is lower than the current min, update the min
+        if (relHeading < minRelHeading) {
+          minRelHeading = relHeading;
+        }
+      }
+    }
+    // print min heading
+    ROS_INFO_STREAM("[LocalPlanner::getRightFrontPatchAdaptive] minHeading: " << minRelHeading);
+    double epsilonAngle = 0.1;
+    // create a dig left zone with startAngle = minHeading - epsilonAngle
+    std::vector<Eigen::Vector2d> vertices = this->getRightFrontPatch(minRelHeading - epsilonAngle);
     return vertices;
   }
 
@@ -4771,12 +4893,12 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
     return vertices;
   }
 
-  std::vector<Eigen::Vector2d> LocalPlanner::getRightFrontPatch() {
+  std::vector<Eigen::Vector2d> LocalPlanner::getRightFrontPatch(double startAngle) {
     // the dumping patch is approximated by a semicircle with radius dumpingOuterRadius_;
     // that spans from the angle pi 1/5 to 1/2 pi
     // the circle is sampled at 10 points
     int numPoints = 15;
-    double startAngle = -M_PI / 4;
+//    double startAngle = -M_PI / 4;
     double endAngle = -M_PI / 2;
     std::vector<Eigen::Vector2d> vertices;
     for (int i = 0; i < numPoints; i++) {

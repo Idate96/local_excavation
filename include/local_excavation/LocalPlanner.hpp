@@ -231,9 +231,11 @@ class LocalPlanner {
   std::vector<Eigen::Vector2d> getDiggingPatchVertices();
   std::vector<Eigen::Vector2d> getDiggingSawPatchVertices();
   std::vector<Eigen::Vector2d> getDiggingSawtoothVertices();
-  std::vector<Eigen::Vector2d> getLeftFrontPatch();
+  std::vector<Eigen::Vector2d> getLeftFrontPatch(double startAngle = M_PI/4);
+  std::vector<Eigen::Vector2d> getLeftFrontPatchAdaptive(std::vector<Eigen::Vector2d>& w_digPatch);
   std::vector<Eigen::Vector2d> getLeftCircularFrontSegmentPatch();
-  std::vector<Eigen::Vector2d> getRightFrontPatch();
+  std::vector<Eigen::Vector2d> getRightFrontPatch(double startAngle = -M_PI/4);
+  std::vector<Eigen::Vector2d> getRightFrontPatchAdaptive(std::vector<Eigen::Vector2d>& w_digPatch);
   std::vector<Eigen::Vector2d> getRightCircularFrontSegmentPatch();
   std::vector<Eigen::Vector2d> getLeftBackPatch();
   std::vector<Eigen::Vector2d> getLeftCircularBackSegmentPatch();
@@ -256,6 +258,10 @@ class LocalPlanner {
   void getShovelOrientation(std::vector<Eigen::Vector3d>& digPoints, std::vector<Eigen::Quaterniond>& orientations,
                             double draggingDistance, double targetPitch, double initialPitch, double heading);
   double getHeading(Eigen::Vector3d& w_P_wd);
+  double getRelativeHeading(Eigen::Vector3d& w_P_wd);
+  Eigen::Quaterniond getOrientation();
+  Eigen::Vector3d getBasePosition();
+  double getMaxDigAngle();
   // trajectory helpers
   std::vector<Eigen::Vector3d>  smoothZCoordinates(std::vector<Eigen::Vector3d>& trajectory);
   void setWorkingDirection(Eigen::Vector2d& workingDirection) { workingDirection_ = workingDirection; }
