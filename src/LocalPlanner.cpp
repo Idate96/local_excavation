@@ -221,6 +221,11 @@ namespace local_excavation {
     if (!success) {
       ROS_WARN("[LocalPlanner]: Failed to get heading weight, falling back to default");
     }
+    // heading_weight_refinement
+    success = nh_.param<double>("/local_excavation/heading_weight_refinement", headingWeightRefinement_, 0.05);
+    if (!success) {
+      ROS_WARN("[LocalPlanner]: Failed to get heading weight refinement, falling back to default");
+    }
     success = nh_.param<double>("/local_excavation/dump_height", dumpAtHeight_, 0.9);
     if (!success) {
       ROS_WARN("[LocalPlanner]: Failed to get dump height, falling back to default");
@@ -467,6 +472,16 @@ namespace local_excavation {
     if (!success) {
       ROS_WARN("[LocalPlanner]: Failed to get log path, falling back to default path %s", logPath_.c_str());
     }
+    // effective_shovel_width
+    success = nh_.param<double>("/local_excavation/effective_shovel_width", effectiveShovelWidth_, 0.5);
+    if (!success) {
+      ROS_WARN("[LocalPlanner]: Failed to get effective shovel width, falling back to default");
+    }
+    // effective_shovel_width_refinement
+    success = nh_.param<double>("/local_excavation/effective_shovel_width_refinement", effectiveShovelWidthRefinement_, 0.5);
+    if (!success) {
+      ROS_WARN("[LocalPlanner]: Failed to get effective shovel width refinement, falling back to default");
+    }
     // log name
     // default log name: current time dd.mm.yyyy_hh.mm.ss
     auto time = boost::posix_time::second_clock::local_time();
@@ -484,6 +499,8 @@ namespace local_excavation {
     circularOuterWorkspaceOuterRadius_ = circularWorkspaceOuterRadius_ * circularOuterWorkspaceOuterRadiusFactor_;
     circularOuterWorkspaceInnerRadius_ = circularWorkspaceInnerRadius_ * circularOuterWorkspaceInnerRadiusFactor_;
     circularOuterWorkspaceAngle_ = circularWorkspaceAngle_ * circularOuterWorkspaceAngleFactor_;
+    refinementAngleIncrement_ =  1.1 * effectiveShovelWidthRefinement_ / circularOuterWorkspaceOuterRadius_;
+    previousRefinementHeading_ = -circularOuterWorkspaceAngle_ + 0.05;
     return true;
     //  // load the parameters
     //  if (!nh_.getParam("/local_excavation/local_map_size", localMapSize_)) {
@@ -780,7 +797,7 @@ namespace local_excavation {
     // create the file
     std::ofstream logScoopsFile(logScoopsPath_.c_str());
     // header: scoop_id, dig_area_id, workspace_id, duration, volume, area, estimated_volume
-    logScoopsFile << "scoop_id,dig_area_id,workspace_id,duration,volume,area,estimated_volume" << std::endl;
+    logScoopsFile << "scoop_id,dig_area_id,workspace_id,duration,volume,area,estimated_volume,estimated_workspace_volume" << std::endl;
     // close it
     logScoopsFile.close();
     // create the file
@@ -793,9 +810,11 @@ namespace local_excavation {
   }
 
   void LocalPlanner::logScoop(Trajectory& traj, double duration, double scoopVolume){
+    // ROS_INFO_STREAM("[LocalPlanner]: Logging scoop");
     // get the scoop volume
     double volume = scoopVolume;
     double area = traj.sweptArea;
+    double workspaceVolume = traj.workspaceVolume;
     double estimatedVolume = traj.scoopedVolume;
     int scoop_id = scoopCounter_;
     scoopCounter_++;
@@ -804,7 +823,7 @@ namespace local_excavation {
     // header: scoop_id, dig_area_id, workspace_id, duration, volume, area, estimated_volume
     // add all these values separated by a comma
     std::ofstream logScoopsFile(logScoopsPath_.c_str(), std::ios_base::app);
-    logScoopsFile << scoop_id << "," << dig_area_id << "," << workspace_id << "," << duration << "," << volume << "," << area << "," << estimatedVolume << std::endl;
+    logScoopsFile << scoop_id << "," << dig_area_id << "," << workspace_id << "," << duration << "," << volume << "," << area << "," << estimatedVolume << "," << workspaceVolume << std::endl;
     logScoopsFile.close();
   }
 
@@ -1268,8 +1287,7 @@ namespace local_excavation {
     //    space
     //    - if the trajectory is valid, we compute the next point in the trajectory and the current volume for the trajectory
     // 3. when trajectory is not valid we stop and close the trajectory
-    Eigen::Vector3d w_P_wb;
-    // get the transform between the ENDEFFECTOR_CONTACT frame and the BOOM frame using tf2
+    // // get the transform between the ENDEFFECTOR_CONTACT frame and the BOOM frame using tf2
     geometry_msgs::TransformStamped T_mba;
     // get transform from base to cabin frame
     try {
@@ -1281,34 +1299,53 @@ namespace local_excavation {
     // get the position of the BASE in the map frame
     Eigen::Vector3d w_P_wba = Eigen::Vector3d(T_mba.transform.translation.x, T_mba.transform.translation.y,
                                               T_mba.transform.translation.z);
-    //  ROS_INFO_STREAM("Base origin in map frame: " << w_P_wba.transpose());
+    //  ROS_INFO_STREAM("Base origin in map frame: " << w_P_wba_.transpose());
     double roll_b, pitch_b, yaw_b;
     tf2::Quaternion R_mba_q =
         tf2::Quaternion(T_mba.transform.rotation.x, T_mba.transform.rotation.y, T_mba.transform.rotation.z,
                         T_mba.transform.rotation.w);
     tf2::Matrix3x3(R_mba_q).getRPY(roll_b, pitch_b, yaw_b);
     // base to digging point in world frame
-    Eigen::Vector3d w_P_bad = w_P_wd - w_P_wba;
+    Eigen::Vector3d w_P_bad = w_P_wd - w_P_wba_;
+    // print w_P_wba and w_P_wba_
+     ROS_INFO_STREAM("w_P_wba: " << w_P_wba.transpose());
+     ROS_INFO_STREAM("w_P_wba_: " << w_P_wba_.transpose());
+    
     //  ROS_INFO_STREAM("[LocalPlanner]: digging point wrt base in world frame: " << w_P_bad.transpose());
     // transform from world to base frame using R_mba
     // convert R_mba to eigen quaternion
     Eigen::Quaterniond R_mba_qe(R_mba_q.w(), R_mba_q.x(), R_mba_q.y(), R_mba_q.z());
+    // print R_mba_qe and R_mba_q_
+      ROS_INFO_STREAM("R_mba_qe: " << R_mba_qe.coeffs().transpose());
+      ROS_INFO_STREAM("R_mba_q_: " << R_mba_q_.coeffs().transpose());
+    // print yaw_b and rpy_(2)
+      ROS_INFO_STREAM("yaw_b: " << yaw_b);
+      ROS_INFO_STREAM("rpy_(2): " << rpy_(2));
     // transform w_P_bad from world to base frame using R_mba
     Eigen::Vector3d ba_P_bad = R_mba_qe.inverse() * w_P_bad;
+    Eigen::Vector3d ba_P_bad_= R_mba_q_.inverse() * w_P_bad;
+    // print ba_P_bad and ba_P_bad_
+      ROS_INFO_STREAM("ba_P_bad: " << ba_P_bad.transpose());
+      ROS_INFO_STREAM("ba_P_bad_: " << ba_P_bad_.transpose());
 
     // relative heading
     //   ROS_INFO_STREAM("[LocalPlanner]: digging point wrt base in base frame: " << ba_P_bad.transpose());
     double relativeHeading = atan2(ba_P_bad(1), ba_P_bad(0));
     //   ROS_INFO_STREAM("Base heading in map frame: " <<  yaw_b);
     //   ROS_INFO_STREAM("[LocalPlanner]: opt traj relative heading is " << relativeHeading);
-    double heading = -yaw_b - relativeHeading;
+    // wrap rpy_(2) between [0, M_PI]
+    double baseHeading = rpy_(2);
+    if (baseHeading < 0) {
+      baseHeading = M_PI + baseHeading;
+    }
+    double heading = - (baseHeading + relativeHeading);
     //   ROS_INFO_STREAM("[LocalPlanner]: opt traj heading " << heading);
 
     //  ROS_INFO_STREAM("[LocalPlanner]: True boom heading " << shovelYaw);
     // transform the yaw angle into a direction vector
     // get perpendicular vector in 2D (is it 2D?)
-    Eigen::Vector3d w_P_dba = (-w_P_wd + w_P_wba).normalized();
-    double distanceFromBase = (-w_P_wd + w_P_wba).norm();
+    Eigen::Vector3d w_P_dba = (-w_P_wd + w_P_wba_).normalized();
+    double distanceFromBase = (-w_P_wd + w_P_wba_).norm();
     //  this->publishHeading(w_P_wd, w_P_dba, "map");
     //  Eigen::Vector3d C_ws = this->findShovelDesiredOrientation(w_P_wd, w_P_dba);
     double slopeAngle = 0;
@@ -1449,7 +1486,7 @@ namespace local_excavation {
         break;
       }
       // compute distance from the base
-      // double distanceFromBase = (w_P_next - w_P_wba).norm();
+      // double distanceFromBase = (w_P_next - w_P_wba_).norm();
       // //    ROS_INFO_STREAM("[LocalPlanner]: distance from base " << startDistanceFromBase);
       // if (distanceFromBase < minDistanceShovelToBase_) {
       //   if (debug){
@@ -1520,6 +1557,10 @@ namespace local_excavation {
     if (digPoints.size() == 0) {
       return Trajectory();
     }
+    if (smoothZCoordinates_){
+      this->removeSaddles(digPoints);
+      this->enableSmoothZCoordinates();
+    }
     this->getShovelOrientation(digPoints, digOrientations, draggingDistance_, targetDigAttitudeInner_, attitudeAngle, heading);
     // check for collisions
     std::vector<Eigen::Vector3d> collisionFreeDigPoints;
@@ -1571,7 +1612,7 @@ namespace local_excavation {
     Eigen::Vector3d w_P_wd_last = smoothedDigPoints.back();
     // get the orientation of the shovel at the last point
     Eigen::Quaterniond R_ws_d_last = smoothedOrientations.back();
-    Eigen::Vector3d closingOffset(0.3, 0, 0.7);
+    Eigen::Vector3d closingOffset(0.4, 0, 0.7);
     double scaling = 0.3;
     Eigen::Vector3d w_P_d2d3 = w_P_dba.normalized() * scaling;
     // get desired height at the end of the trajectory
@@ -1585,7 +1626,7 @@ namespace local_excavation {
     // transfrom to world frame by rotating yaw angle around the z axis
     Eigen::AngleAxisd R_wc(heading, Eigen::Vector3d::UnitZ());
     Eigen::Vector3d w_P_wd3 = w_P_wd_last + w_P_d2d3;
-    w_P_wd3(2) = elevation2;
+    w_P_wd3(2) = w_P_wd_last(2) + closingOffset(2);
     Eigen::Vector3d w_P_wd4 = w_P_wd3 + closingZTranslation_ * Eigen::Vector3d::UnitZ();
     double theta = M_PI / 2 - M_PI / 2;  // last quadrant of the circle
     //  Eigen::Vector3d w_P_wd3 =
@@ -1627,8 +1668,8 @@ namespace local_excavation {
     // sum elements of collisionFreeTotalVolumes
     trajectory.scoopedVolume = std::accumulate(collisionFreeTotalVolumes.begin(), collisionFreeTotalVolumes.end(), 0.0);
     trajectory.workspaceVolume = std::accumulate(collisionFreeStepVolumes.begin(), collisionFreeStepVolumes.end(), 0.0);
-    trajectory.startDistanceFromBase = (w_P_wd_off.head(2) - w_P_wba.head(2)).norm();
-    trajectory.endDistanceFromBase = (w_P_wd_last.head(2) - w_P_wba.head(2)).norm();
+    trajectory.startDistanceFromBase = (w_P_wd_off.head(2) - w_P_wba_.head(2)).norm();
+    trajectory.endDistanceFromBase = (w_P_wd_last.head(2) - w_P_wba_.head(2)).norm();
     trajectory.relativeHeading = relativeHeading;
     // compute total trajectory length summing the distance between the points of the trajectory
     trajectory.length = 0;
@@ -1945,7 +1986,7 @@ namespace local_excavation {
     if (digPoints.size() == 0) {
       return Trajectory();
     }
-
+    this->removeSaddles(digPoints);
     this->getShovelOrientation(digPoints, digOrientations, draggingDirtDistance_, targetDigDirtAttitudeInner_, attitudeAngle, heading);
     // check for collisions
     std::vector<Eigen::Vector3d> collisionFreeDigPoints;
@@ -1965,7 +2006,6 @@ namespace local_excavation {
           minDistance = result.distance;
         }
       }
-      ROS_INFO_STREAM("[LocalPlanner]: min distance " << minDistance);
       // print the distance
       if (minDistance > minDistanceCollision_) {
         collisionFreeDigPoints.push_back(digPoints[i]);
@@ -2118,45 +2158,52 @@ namespace local_excavation {
     // 3. when trajectory is not valid we stop and close the trajectory
     Eigen::Vector3d w_P_wb;
     // get the transform between the ENDEFFECTOR_CONTACT frame and the BOOM frame using tf2
-    geometry_msgs::TransformStamped T_mba;
-    // get transform from base to cabin frame
-    try {
-      T_mba = tfBuffer_->lookupTransform("map", "BASE", ros::Time(0));
-    } catch (tf2::TransformException &ex) {
-      ROS_WARN("%s", ex.what());
-      ros::Duration(1.0).sleep();
-    }
-    // get the position of the BASE in the map frame
-    Eigen::Vector3d w_P_wba = Eigen::Vector3d(T_mba.transform.translation.x, T_mba.transform.translation.y,
-                                              T_mba.transform.translation.z);
-    //  ROS_INFO_STREAM("Base origin in map frame: " << w_P_wba.transpose());
-    double roll_b, pitch_b, yaw_b;
-    tf2::Quaternion R_mba_q =
-        tf2::Quaternion(T_mba.transform.rotation.x, T_mba.transform.rotation.y, T_mba.transform.rotation.z,
-                        T_mba.transform.rotation.w);
-    tf2::Matrix3x3(R_mba_q).getRPY(roll_b, pitch_b, yaw_b);
+    // geometry_msgs::TransformStamped T_mba;
+    // // get transform from base to cabin frame
+    // try {
+    //   T_mba = tfBuffer_->lookupTransform("map", "BASE", ros::Time(0));
+    // } catch (tf2::TransformException &ex) {
+    //   ROS_WARN("%s", ex.what());
+    //   ros::Duration(1.0).sleep();
+    // }
+    // // get the position of the BASE in the map frame
+    // Eigen::Vector3d w_P_wba = Eigen::Vector3d(T_mba.transform.translation.x, T_mba.transform.translation.y,
+    //                                           T_mba.transform.translation.z);
+    // //  ROS_INFO_STREAM("Base origin in map frame: " << w_P_wba.transpose());
+    // double roll_b, pitch_b, yaw_b;
+    // tf2::Quaternion R_mba_q =
+    //     tf2::Quaternion(T_mba.transform.rotation.x, T_mba.transform.rotation.y, T_mba.transform.rotation.z,
+    //                     T_mba.transform.rotation.w);
+    // tf2::Matrix3x3(R_mba_q).getRPY(roll_b, pitch_b, yaw_b);
     // base to digging point in world frame
-    Eigen::Vector3d w_P_bad = w_P_wd - w_P_wba;
+    Eigen::Vector3d w_P_bad = w_P_wd - w_P_wba_;
     //  ROS_INFO_STREAM("[LocalPlanner]: digging point wrt base in world frame: " << w_P_bad.transpose());
     // transform from world to base frame using R_mba
     // convert R_mba to eigen quaternion
-    Eigen::Quaterniond R_mba_qe(R_mba_q.w(), R_mba_q.x(), R_mba_q.y(), R_mba_q.z());
+    // Eigen::Quaterniond R_mba_qe(R_mba_q.w(), R_mba_q.x(), R_mba_q.y(), R_mba_q.z());
     // transform w_P_bad from world to base frame using R_mba
-    Eigen::Vector3d ba_P_bad = R_mba_qe.inverse() * w_P_bad;
+    Eigen::Vector3d ba_P_bad = R_mba_q_.inverse() * w_P_bad;
 
     // relative heading
     //   ROS_INFO_STREAM("[LocalPlanner]: digging point wrt base in base frame: " << ba_P_bad.transpose());
     double relativeHeading = atan2(ba_P_bad(1), ba_P_bad(0));
+    if (relativeHeading - previousRefinementHeading_ > refinementAngleIncrement_){
+      return Trajectory();
+    }
+
     //   ROS_INFO_STREAM("Base heading in map frame: " <<  yaw_b);
     //   ROS_INFO_STREAM("[LocalPlanner]: opt traj relative heading is " << relativeHeading);
-    double heading = -yaw_b - relativeHeading;
+    double heading = -rpy_(2) - relativeHeading;
     //   ROS_INFO_STREAM("[LocalPlanner]: opt traj heading " << heading);
 
     //  ROS_INFO_STREAM("[LocalPlanner]: True boom heading " << shovelYaw);
     // transform the yaw angle into a direction vector
     // get perpendicular vector in 2D (is it 2D?)
-    Eigen::Vector3d w_P_dba = (-w_P_wd + w_P_wba).normalized();
-    double distanceFromBase = (-w_P_wd + w_P_wba).norm();
+    Eigen::Vector3d w_P_dba = (-w_P_wd + w_P_wba_).normalized();
+    double distanceFromBase = (-w_P_wd + w_P_wba_).norm();
+    if (distanceFromBase < 0.9 * circularOuterWorkspaceOuterRadius_){
+      return Trajectory();
+    }
     //  this->publishHeading(w_P_wd, w_P_dba, "map");
     //  Eigen::Vector3d C_ws = this->findShovelDesiredOrientation(w_P_wd, w_P_dba);
     double slopeAngle = 0;
@@ -2214,8 +2261,8 @@ namespace local_excavation {
     double workspaceVolume = 0;
     double area = 0;
 
-    Eigen::Vector3d s_posLeftShovel_cl(0.0, 0.70, 0.0);
-    Eigen::Vector3d s_posRightShovel_cr(0.0, -0.70, 0.0);
+    Eigen::Vector3d s_posLeftShovel_cl(0.0, 0.60, 0.0);
+    Eigen::Vector3d s_posRightShovel_cr(0.0, -0.60, 0.0);
     // now we march with step size of planningMap resolution / 2 in the direction of the boom direction until the trajectory is not valid
     // anymore
     int numSteps = 0;
@@ -2229,7 +2276,7 @@ namespace local_excavation {
     while (valid) {
       Eigen::Vector3d w_P_next = w_P_wd_current + stepSize * w_P_dba;
       // distance from basse
-      double distanceFromBase = (-w_P_next.head(2) + w_P_wba.head(2)).norm();
+      double distanceFromBase = (-w_P_next.head(2) + w_P_wba_.head(2)).norm();
       double pitch = this->getDigAttitude(distanceFromBase);
       Eigen::Quaterniond R_ws_d = this->get_R_sw(0, -pitch, heading);
       // height is overridden
@@ -2243,6 +2290,14 @@ namespace local_excavation {
 
       double nextDesiredElevation = planningMap_.at(targetLayer, nextIndex) - refinementDepthBias_;
       double nextElevation = planningMap_.at("planning_elevation", nextIndex);
+      if (debug){
+        // print value at layer planning_elevation, targetLayer and desired_elevation
+        // ROS_INFO_STREAM("[LocalPlanner]: nextDesiredElevation: " << planningMap_.at("desired_elevation", nextIndex));
+        // ROS_INFO_STREAM("[LocalPlanner]: nextElevation: " << nextElevation);
+        // ROS_INFO_STREAM("[LocalPlanner]: nextTargetElevation " << nextDesiredElevation);
+        // // print distace from base
+        // ROS_INFO_STREAM("[LocalPlanner]: distance from base: " << distanceFromBase);
+      }
       // if nan set nextElevation to previousElevation
       if (std::isnan(nextElevation)) {
         nextElevation = previousElevation;
@@ -2250,8 +2305,9 @@ namespace local_excavation {
         previousElevation = nextElevation;
       }
 
-      w_P_next(2) =
-          nextElevation + std::max(desiredElevation - nextElevation, -maxDigDepth_);  // fix maximal depth
+      // w_P_next(2) =
+      //     nextElevation + std::max(desiredElevation - nextElevation, -maxDigDepth_);  // fix maximal depth
+      w_P_next(2) = nextDesiredElevation;
 
       // position of the left point of the shovel (l) in world frame
       Eigen::Vector3d w_posLeftShovel_wl = w_P_next + R_ws_d1.inverse() * s_posLeftShovel_cl;
@@ -2289,6 +2345,9 @@ namespace local_excavation {
 //        break;
 //      }
       if (distanceFromBase < minDistanceShovelToBaseRefined_) {
+        if (debug){
+          ROS_INFO_STREAM("[LocalPlanner]: distance from base too small");
+        }
         valid = false;
         break;
       }
@@ -2309,7 +2368,9 @@ namespace local_excavation {
         }
       }
       if (minDistance < minDistanceCollisionRefinement_) {
-//        ROS_INFO_STREAM("[LocalPlanner]: collision detected " << minDistance);
+        if (debug){
+          ROS_INFO_STREAM("[LocalPlanner]: collision detected");
+        }
         valid = false;
         break;
       }
@@ -2329,62 +2390,76 @@ namespace local_excavation {
       return Trajectory();
     }
 
-    std::vector<Eigen::Vector3d> smoothedDigPoints;
-    // smoothing points
-//    ROS_INFO_STREAM("[LocalPlanner]: smoothing points, num steps outside refinement " << numStepsOutsideRefinement << " num steps " << digPoints.size());
-    // smooth the last numStepsOutOfRefinement dig points
-    if (numStepsOutsideRefinement > 4){
-      std::vector<Eigen::Vector3d> digPointsToSmooth;
-      for (int i = digPoints.size() - numStepsOutsideRefinement; i < digPoints.size(); i++){
-        digPointsToSmooth.push_back(digPoints.at(i));
-      }
-      smoothedDigPoints = this->smoothZCoordinates(digPointsToSmooth);
-      // append the rest of the points
-      smoothedDigPoints.insert(smoothedDigPoints.begin(), digPoints.begin(), digPoints.end() - numStepsOutsideRefinement);
-    } else {
-      smoothedDigPoints = digPoints;
-    }
-    if (smoothedDigPoints.size() == 0) {
-      return Trajectory();
-    }
-    std::vector<Eigen::Quaterniond> smoothedOrientations;
-    // iterate over the dig points, compute the distance from base
-    for (size_t i = 0; i < smoothedDigPoints.size(); i++) {
-      Eigen::Vector3d w_P_wd = smoothedDigPoints.at(i);
-      double distanceFromBaseSmooth = (w_P_wd - w_P_wba).norm();
-      // compute the orientation
-      double pitchSmooth = this->getDigAttitude(distanceFromBaseSmooth);
-      auto attitude = this->get_R_sw(0, -pitchSmooth, heading);
-      smoothedOrientations.push_back(attitude);
-    }
+//     std::vector<Eigen::Vector3d> smoothedDigPoints;
+//     // smoothing points
+// //    ROS_INFO_STREAM("[LocalPlanner]: smoothing points, num steps outside refinement " << numStepsOutsideRefinement << " num steps " << digPoints.size());
+//     // smooth the last numStepsOutOfRefinement dig points
+//     if (numStepsOutsideRefinement > 4){
+//       std::vector<Eigen::Vector3d> digPointsToSmooth;
+//       for (int i = digPoints.size() - numStepsOutsideRefinement; i < digPoints.size(); i++){
+//         digPointsToSmooth.push_back(digPoints.at(i));
+//       }
+//       smoothedDigPoints = this->smoothZCoordinates(digPointsToSmooth);
+//       // append the rest of the points
+//       smoothedDigPoints.insert(smoothedDigPoints.begin(), digPoints.begin(), digPoints.end() - numStepsOutsideRefinement);
+//     } else {
+//       smoothedDigPoints = digPoints;
+//     }
+//     if (smoothedDigPoints.size() == 0) {
+//       return Trajectory();
+//     }
+//     std::vector<Eigen::Quaterniond> smoothedOrientations;
+//     // iterate over the dig points, compute the distance from base
+//     for (size_t i = 0; i < smoothedDigPoints.size(); i++) {
+//       Eigen::Vector3d w_P_wd = smoothedDigPoints.at(i);
+//       double distanceFromBaseSmooth = (w_P_wd - w_P_wba_).norm();
+//       // compute the orientation
+//       double pitchSmooth = this->getDigAttitude(distanceFromBaseSmooth);
+//       auto attitude = this->get_R_sw(0, -pitchSmooth, heading);
+//       smoothedOrientations.push_back(attitude);
+//     }
 
 
     //    digPointsFused.push_back(w_P_wd_last)
     // check if digPointFused size is bigger then 0 else raise an warning
-    if (smoothedDigPoints.size() == 0) {
-//      ROS_WARN_STREAM("[LocalPlanner]: could not find a valid trajectory!");
-      return Trajectory();
-    }
+//     if (smoothedDigPoints.size() == 0) {
+// //      ROS_WARN_STREAM("[LocalPlanner]: could not find a valid trajectory!");
+//       return Trajectory();
+//     }
     // get the trajectory
     // print the digPointsFused
     //  ROS_INFO_STREAM("[LocalPlanner]: digPointsFused size " << digPointsFused.size());
     //  for (size_t i = 0; i < digPointsFused.size(); i++) {
     //    ROS_INFO_STREAM("[LocalPlanner]: digPointsFused " << digPointsFused[i].transpose());
     //  }
+    std::vector<Eigen::Vector3d> digPointsFused;
+    std::vector<Eigen::Quaterniond> digOrientationsFused;
+    digPointsFused.push_back(w_P_wd_off);
+    digOrientationsFused.push_back(R_ws_d);
+    digPointsFused.push_back(w_P_wd1);
+    digOrientationsFused.push_back(R_ws_d1);
+    digPointsFused.insert(digPointsFused.end(), digPoints.begin(), digPoints.end());
+    digOrientationsFused.insert(digOrientationsFused.end(), digOrientations.begin(), digOrientations.end());
+    // create a new point that has the same x and y of the last position by z shifted upwards of 1 m
+    Eigen::Vector3d w_P_wd_last = digPointsFused.back();
+    Eigen::Vector3d w_P_wd_last_up = w_P_wd_last;
+    w_P_wd_last_up.z() += 1;
+    digPointsFused.push_back(w_P_wd_last_up);
+    digOrientationsFused.push_back(digOrientationsFused.back());
     Trajectory trajectory;
-    trajectory.positions = smoothedDigPoints;
-    trajectory.orientations = smoothedOrientations;
+    trajectory.positions = digPointsFused;
+    trajectory.orientations = digOrientationsFused;
     // sum elements of collisionFreeTotalVolumes
     trajectory.sweptArea = area;
     trajectory.workspaceVolume = workspaceVolume;
     // last element of smoothedDigPoints
-    trajectory.startDistanceFromBase = (w_P_wd_off.head(2) - w_P_wba.head(2)).norm();
-    trajectory.endDistanceFromBase = (smoothedDigPoints.back().head(2) - w_P_wba.head(2)).norm();
+    trajectory.startDistanceFromBase = (w_P_wd_off.head(2) - w_P_wba_.head(2)).norm();
+    trajectory.endDistanceFromBase = (digPointsFused.back().head(2) - w_P_wba_.head(2)).norm();
     trajectory.relativeHeading = relativeHeading;
     // compute total trajectory length summing the distance between the points of the trajectory
     trajectory.length = 0;
-    for (size_t i = 0; i < smoothedDigPoints.size() - 1; i++) {
-      trajectory.length += (smoothedDigPoints[i] - smoothedDigPoints[i + 1]).norm();
+    for (size_t i = 0; i < digPointsFused.size() - 1; i++) {
+      trajectory.length += (digPointsFused[i] - digPointsFused[i + 1]).norm();
     }
     trajectory.startPosition = w_P_wd;
     //  ROS_INFO_STREAM("[LocalPlanner]: completed trajectory starting at" << w_P_wd_off.transpose() << " with heading " << heading);
@@ -2399,6 +2474,16 @@ namespace local_excavation {
     //  planningMap_["planning_elevation"] = planningMap_["elevation"];
     //  lock.unlock();
     return trajectory;
+  }
+
+  void LocalPlanner::removeSaddles(std::vector<Eigen::Vector3d>& digPoints){
+    for (size_t i = 0; i < digPoints.size(); i++) {
+      if (i > 1 && i < digPoints.size() -1) {
+        if (digPoints[i - 1](2) < digPoints[i](2) && digPoints[i + 1](2) < digPoints[i](2)) {
+          digPoints[i](2) = (digPoints[i - 1](2) + digPoints[i + 1](2)) / 2;
+        }
+      }
+    }
   }
 
   void LocalPlanner::getShovelOrientation(std::vector<Eigen::Vector3d>& digPoints, std::vector<Eigen::Quaterniond>& digOrientations,
@@ -2424,11 +2509,11 @@ namespace local_excavation {
     for (size_t i = 0; i < digPoints.size(); i++) {
       Eigen::Quaterniond R_ws_d = this->get_R_sw(0, -currentPitchOrientation, heading);
       digOrientations.push_back(R_ws_d);
-      if (i > 1 && i < digPoints.size() -1) {
-        if (digPoints[i - 1](2) < digPoints[i](2) && digPoints[i + 1](2) < digPoints[i](2)) {
-          digPoints[i](2) = (digPoints[i - 1](2) + digPoints[i + 1](2)) / 2;
-        }
-      }
+      // if (i > 1 && i < digPoints.size() -1) {
+      //   if (digPoints[i - 1](2) < digPoints[i](2) && digPoints[i + 1](2) < digPoints[i](2)) {
+      //     digPoints[i](2) = (digPoints[i - 1](2) + digPoints[i + 1](2)) / 2;
+      //   }
+      // }
       if (i <= numPointsToReachDraggingDistance) {
         currentPitchOrientation += stepSizePitchOrientation;
       } else {
@@ -2533,8 +2618,35 @@ namespace local_excavation {
 
   Trajectory LocalPlanner::getOptimalTrajectory() {
     this->publishTrajectoryPoses(optimalDigTrajectory_.positions, optimalDigTrajectory_.orientations);
+    // print the Trajectory fields 
+    // std::vector<Eigen::Vector3d> positions;
+    // std::vector<Eigen::Quaterniond> orientations;
+    // Eigen::Vector3d startPosition;
+    // double startDistanceFromBase = 0;
+    // double endDistanceFromBase = 0;
+    // double relativeHeading = 0;
+    // double scoopedVolume = -10;
+    // double workspaceVolume = -10;
+    // double length = 0;
+    // double sweptArea = 0; // m^2
+    // std::vector<double> stepVolumes;
+    // std::vector<double> otherVolumes;
+    // std::vector<double> totalVolumes;
+    // ROS_INFO_STREAM("[LocalPlanner]: optimalDigTrajectory_.positions.size() " << optimalDigTrajectory_.positions.size());
+    // // ROS_INFO_STREAM("[LocalPlanner]: optimalDigTrajectory_.orientations.size() " << optimalDigTrajectory_.orientations.size());
+    // ROS_INFO_STREAM("[LocalPlanner]: optimalDigTrajectory_.startPosition " << optimalDigTrajectory_.startPosition.transpose());
+    // ROS_INFO_STREAM("[LocalPlanner]: optimalDigTrajectory_.startDistanceFromBase " << optimalDigTrajectory_.startDistanceFromBase);
+    // ROS_INFO_STREAM("[LocalPlanner]: optimalDigTrajectory_.endDistanceFromBase " << optimalDigTrajectory_.endDistanceFromBase);
+    // ROS_INFO_STREAM("[LocalPlanner]: optimalDigTrajectory_.relativeHeading " << optimalDigTrajectory_.relativeHeading);
+    // ROS_INFO_STREAM("[LocalPlanner]: optimalDigTrajectory_.scoopedVolume " << optimalDigTrajectory_.scoopedVolume);
+    // ROS_INFO_STREAM("[LocalPlanner]: optimalDigTrajectory_.workspaceVolume " << optimalDigTrajectory_.workspaceVolume);
+    // ROS_INFO_STREAM("[LocalPlanner]: optimalDigTrajectory_.length " << optimalDigTrajectory_.length);
+    // ROS_INFO_STREAM("[LocalPlanner]: optimalDigTrajectory_.sweptArea " << optimalDigTrajectory_.sweptArea);
+    // ROS_INFO_STREAM("[LocalPlanner]: optimalDigTrajectory_.stepVolumes.size() " << optimalDigTrajectory_.stepVolumes.size());
+    // ROS_INFO_STREAM("[LocalPlanner]: optimalDigTrajectory_.otherVolumes.size() " << optimalDigTrajectory_.otherVolumes.size());
+    // ROS_INFO_STREAM("[LocalPlanner]: optimalDigTrajectory_.totalVolumes.size() " << optimalDigTrajectory_.totalVolumes.size());
     return optimalDigTrajectory_;
-  }
+};
 
   double LocalPlanner::volumeObjective(Trajectory trajectory) {
 //    ROS_INFO_STREAM("[LocalPlanner]: remaining volume ratio: " << remainingVolumeRatio_);
@@ -2556,13 +2668,13 @@ namespace local_excavation {
   double LocalPlanner::sweptAreaObjective(Trajectory trajectory){
     double workspaceCost = sweptAreaWeight_ * trajectory.sweptArea;
     // as volume is removed more importance is given to the workspace volume
-    double distanceWeight =  distanceWeight_ * missingCellsAreaRatio_ *
-                            (trajectory.startDistanceFromBase - circularWorkspaceInnerRadius_) /
-                            (circularWorkspaceOuterRadius_ - circularWorkspaceInnerRadius_);
     double headingWeight =
-        missingCellsAreaRatio_ * headingWeight_ * trajectory.relativeHeading / (circularWorkspaceAngle_ / 2.0);
-    double objective = workspaceCost * (1 + distanceWeight + headingWeight);
-//    ROS_INFO_STREAM("[LocalPlanner]: swept area objective: " << objective);
+        missingCellsAreaRatio_ * headingWeightRefinement_ * trajectory.relativeHeading / (circularWorkspaceAngle_ / 2.0);
+    double objective = workspaceCost * (1 + headingWeight);
+    //    ROS_INFO_STREAM("[LocalPlanner]: swept area objective: " << objective); 
+    // print the weights 
+    // ROS_INFO_STREAM("[LocalPlanner]: refinement sweptAreacost " << workspaceCost);
+    // ROS_INFO_STREAM("[LocalPlanner]: refinement headingWeight_ " << headingWeight);
     return objective;
   }
 
@@ -3659,7 +3771,28 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
     this->setWorkspacePose(posWaypoint, q);
   }
 
+  void LocalPlanner::updateCurrentPositionsAndOrientations(){
+    // get the transform between the ENDEFFECTOR_CONTACT frame and the BOOM frame using tf2
+    geometry_msgs::TransformStamped T_mba;
+    // get transform from base to cabin frame
+    try {
+      T_mba = tfBuffer_->lookupTransform("map", "BASE", ros::Time(0));
+    } catch (tf2::TransformException &ex) {
+      ROS_WARN("%s", ex.what());
+      ros::Duration(1.0).sleep();
+    }
+    // get the position of the BASE in the map frame
+    w_P_wba_ = Eigen::Vector3d(T_mba.transform.translation.x, T_mba.transform.translation.y,
+                                              T_mba.transform.translation.z);
+    // get the pich, roll and yaw using Eigen
+    R_mba_q_ = Eigen::Quaterniond(T_mba.transform.rotation.w, T_mba.transform.rotation.x, T_mba.transform.rotation.y,
+                         T_mba.transform.rotation.z);  
+    // get the euler angles
+    rpy_ = R_mba_q_.toRotationMatrix().eulerAngles(0, 1, 2);
+  }
+
   void LocalPlanner::createPlanningZones() {
+    this->updateCurrentPositionsAndOrientations();
     ROS_INFO_STREAM("[LocalPlanner]: **************Creating planning zones**************");
     // print the workspace index
     ROS_INFO_STREAM("[LocalPlanner]: Current workspace index: " << currentWorkspaceIndex_);
@@ -4609,8 +4742,24 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
     }
     planningMap_.getPosition(dumpPointIndex_, dumpPoint);
     // vertical offset is introduced to avoid having to introduce a more complex planner for the arm
+    // to get the target elevation for the dump point we check 
+    // using a Circleiterator the elevation around the dump location (radius 1 m)
+    // and we take the maximum 
+    // the dump point z coordinates is then set to the maximum elevation
+    grid_map::CircleIterator iterator(planningMap_, dumpPoint, 2);
+    double maxElevation = -std::numeric_limits<double>::infinity();
+    while (!iterator.isPastEnd()) {
+      const grid_map::Index index(*iterator);
+      double elevation = planningMap_.at("elevation", index);
+      if (elevation > maxElevation) {
+        maxElevation = elevation;
+      }
+      ++iterator;
+    }
+    // print max height
+     ROS_INFO_STREAM("[LocalPlanner]: getDumpPoint: max elevation: " << maxElevation);
     Eigen::Vector3d dumpPoint_3d(dumpPoint.x(), dumpPoint.y(),
-                                 dumpAtHeight_ + planningMap_.at("elevation", dumpPointIndex_));
+                                 dumpAtHeight_ + maxElevation);
     return dumpPoint_3d;
   }
 
@@ -5136,7 +5285,7 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
     Trajectory lastRefinementTraj = this->getOptimalTrajectory();
     // get starting point
     Eigen::Vector3d startPoint = lastRefinementTraj.positions.at(0);
-    this->computeRefinementTrajectory(startPoint, "desired_elevation", false, true);
+    this->computeRefinementTrajectory(startPoint, "desired_elevation", true, true);
   }
 
   void LocalPlanner::markAsDugShovelPointsCloseToDesiredElevation(){

@@ -255,6 +255,7 @@ class LocalPlanner {
   int getDigZoneId() { return digZoneId_; }
   void createConvexHull(std::vector<Eigen::Vector2d>& points, std::vector<Eigen::Vector2d>& hull);
 
+  void removeSaddles(std::vector<Eigen::Vector3d>& points);
   void getShovelOrientation(std::vector<Eigen::Vector3d>& digPoints, std::vector<Eigen::Quaterniond>& orientations,
                             double draggingDistance, double targetPitch, double initialPitch, double heading);
   double getHeading(Eigen::Vector3d& w_P_wd);
@@ -264,6 +265,9 @@ class LocalPlanner {
   double getMaxDigAngle();
   // trajectory helpers
   std::vector<Eigen::Vector3d>  smoothZCoordinates(std::vector<Eigen::Vector3d>& trajectory);
+  double smoothZCoordinates_ = true;
+  void disableSmoothZCoordinates() { smoothZCoordinates_ = false; }
+  void enableSmoothZCoordinates() { smoothZCoordinates_ = true; }
   void setWorkingDirection(Eigen::Vector2d& workingDirection) { workingDirection_ = workingDirection; }
   void publishCollisionTrajectory(std::vector<Eigen::Vector3d> pos, std::vector<Eigen::Quaterniond> orientations);
   bool updateShovelCollisionBody(Eigen::Vector3d w_P_ws, Eigen::Quaterniond C_ws);
@@ -440,6 +444,7 @@ class LocalPlanner {
   double volumeWeight_;
   double distanceWeight_;
   double headingWeight_;
+  double headingWeightRefinement_;
   double sweptAreaWeight_;
 
   // parameters
@@ -455,6 +460,11 @@ class LocalPlanner {
   double targetDigDirtAttitudeInner_;
   double targetRefinementAttitude_;
   double targetRefinementAttitudeInner_;
+  // refinement
+  double previousRefinementHeading_;
+  double refinementAngleIncrement_;
+  double effectiveShovelWidth_;
+  double effectiveShovelWidthRefinement_;
   // drag shovel angle
   double draggingAngle_;
   // areas with more than this ratio (dug area / total area) of the total area are considered not active
@@ -516,6 +526,7 @@ class LocalPlanner {
   double dumpingZoneOuterRadius_;
   double dumpingZoneInnerRadius_;
   double minDistanceShovelToBase_;
+  double minDistanceShovelToBaseDig_;
   double minDistanceShovelToBaseRefined_;
   double circularWorkspaceAngle_;
   int currentTrackId = 0;
@@ -537,6 +548,12 @@ class LocalPlanner {
   std::string saveMapPath_;
   // recovery behaviour
   int lowVolumeScoopCounter_ = 0;
+  
+  // current positions and orientations
+  void updateCurrentPositionsAndOrientations();
+  Eigen::Vector3d w_P_wba_ = Eigen::Vector3d::Zero();
+  Eigen::Quaterniond R_mba_q_ = Eigen::Quaterniond::Identity();  
+  Eigen::Vector3d rpy_ = Eigen::Vector3d::Zero();
   //
   double dugSdfAlpha_ = 1;
   double dugSdfBeta_ = 1;

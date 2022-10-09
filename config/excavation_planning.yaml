@@ -8,6 +8,7 @@ local_excavation:
   outer_workspace_inner_radius_factor: 1.0
   outer_workspace_angle_factor: 1.01
   min_distance_shovel_to_base: 3.5 # in meters
+  min_distance_shovel_to_base_dig: 4.2
   min_distance_shovel_to_base_refined: 4.4
   workspace_angle: 1.9 # radians
   max_volume: 0.8 # soil volume in m^3
@@ -16,6 +17,7 @@ local_excavation:
   swept_area_weight: 1
   distance_weight: 0.2
   heading_weight: 0.08
+  heading_weight_refinement: -0.2
   dump_height: 1.0 # in meters
   volume_dirt_threshold: 3.0
   height_dirt_threshold: 0.2
@@ -23,7 +25,7 @@ local_excavation:
   volume_threshold: 0.08 # in m^3, parameter that controls when the workspace is done
   height_threshold: 0.10 # in meters, parameter that controls when a cell not considered done
   missing_cells_threshold: 0.10 # fraction, parameter that controls when the workspace is done
-  refinement_cells_threshold: 0.20 # fraction, parameter that controls when the workspace is done
+  refinement_cells_threshold: 0.10 # fraction, parameter that controls when the workspace is done
   refinement_area_threshold: 1.5 # m^2, parameter that controls when the workspace is done
   ignore_scoop_area: 1.0 # m^2, parameter that controls when the workspace is done
   inactive_area_ratio: 0.95
@@ -50,7 +52,7 @@ local_excavation:
   refinement_angle: 0.8
   closing_z_translation: 0.8
   min_distance_collision: 1.0
-  min_distance_collision_refinement: 1.1
+  min_distance_collision_refinement: 1.0
   target_dig_attitude: 0.52
   target_dig_attitude_inner: 1.2
   target_dig_dirt_attitude: 1.0
@@ -63,7 +65,7 @@ local_excavation:
   low_volume_scoop_attempts: 3
   footprint_inflation: 1.0
   depth_bias: 0.0
-  refinement_depth_bias: 0.02
+  refinement_depth_bias: 0.03
   min_elevation_variance: 0.000001
   max_elevation_variance: 0.001
   mark_dug_previous_waypoints: true
@@ -74,3 +76,5 @@ local_excavation:
   workspace_topic: /coverage/workspaces
   dig_zone_teeth_number: 1
   refine: true
+  effective_shovel_width: 0.7
+  effective_shovel_width_refinement: 0.6
