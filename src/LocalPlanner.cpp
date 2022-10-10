@@ -1686,9 +1686,9 @@ namespace local_excavation {
     if (debug){
       // print the z coordinates
       ROS_INFO_STREAM("[LocalPlanner]: smoothing enabled " << smoothZCoordinates_);
-      for (size_t i = 0; i < digPointsFused.size(); i++) {
-        ROS_INFO_STREAM("[LocalPlanner]: dig point " << i << " " << digPointsFused[i].transpose());
-      }
+//      for (size_t i = 0; i < digPointsFused.size(); i++) {
+//        ROS_INFO_STREAM("[LocalPlanner]: dig point " << i << " " << digPointsFused[i].transpose());
+//      }
     }
     // check if digPointFused size is bigger then 0 else raise an warning
     if (digPointsFused.size() == 0) {
@@ -2526,9 +2526,9 @@ namespace local_excavation {
     digPointsFused.insert(digPointsFused.end(), closingPoints.begin() + 1, closingPoints.end());
     digOrientationsFused.insert(digOrientationsFused.end(), closingOrientations.begin() + 1, closingOrientations.end());
     if (debug){
-      for (size_t i = 0; i < digPointsFused.size(); i++) {
-        ROS_INFO_STREAM("[LocalPlanner]: digPointsFused " << digPointsFused[i].transpose());
-      }
+//      for (size_t i = 0; i < digPointsFused.size(); i++) {
+//        ROS_INFO_STREAM("[LocalPlanner]: digPointsFused " << digPointsFused[i].transpose());
+//      }
     }
     // create a new point that has the same x and y of the last position by z shifted upwards of 1 m
 //    Eigen::Vector3d w_P_wd_last = digPointsFused.back();
@@ -3861,12 +3861,13 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
     return newPolygon;
   }
 
-  void LocalPlanner::loadWorkspace(double workspaceId){
+  void LocalPlanner::loadWorkspace(double workspaceId, bool fromSamePosition){
     if (workspaceId == -1){
       currentWorkspaceIndex_++;
     } else {
       currentWorkspaceIndex_ = workspaceId;
     }
+    nextWorkspaceFromSamePose_ = fromSamePosition;
     auto nextPose = globalWorkspace_.at(currentWorkspaceIndex_);
     ROS_INFO_STREAM("[LocalPlanner]: Loading workspace " << currentWorkspaceIndex_ << " with pose " << nextPose);
     // print total number of workspaces
@@ -3988,15 +3989,33 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
           ROS_WARN("[LocalPlanner]: %s", ex.what());
           ros::Duration(1.0).sleep();
         }
+
         // get translation vector from T_bw
         Eigen::Vector3d t_bw;
+        Eigen::Vector3d t_bw_dig;
         Eigen::Quaterniond targetOrientation;
+        Eigen::Quaterniond targetDigOrientation;
         if (isWorkspacePoseSet_) {
           //    ROS_INFO_STREAM("[LocalPlanner]: using set workspace pose");
-          targetOrientation = workspaceOrientation_;
-          // todo: put proper translation vector
-          // t_bw = Eigen::Vector3d(T_bw.transform.translation.x, T_bw.transform.translation.y, T_bw.transform.translation.z);
-          t_bw = workspacePos_;
+          if (nextWorkspaceFromSamePose_){
+            // we just set the workspaceDigPos_ and workspaceDigOrientation_ to the current workspace pose
+            targetDigOrientation = workspaceDigOrientation_;
+            t_bw_dig = workspaceDigPos_;
+            targetOrientation =
+                Eigen::Quaterniond(T_bw.transform.rotation.w, T_bw.transform.rotation.x,
+                                   T_bw.transform.rotation.y, T_bw.transform.rotation.z);
+            t_bw = Eigen::Vector3d(T_bw.transform.translation.x, T_bw.transform.translation.y,
+                                   T_bw.transform.translation.z);
+
+          } else {
+            targetOrientation = workspaceOrientation_;
+            targetDigOrientation = workspaceDigOrientation_;
+            // todo: put proper translation vector
+            // t_bw = Eigen::Vector3d(T_bw.transform.translation.x, T_bw.transform.translation.y, T_bw.transform.translation.z);
+            t_bw = workspacePos_;
+            t_bw_dig = workspaceDigPos_;
+          }
+
 //          ROS_INFO_STREAM(
 //              "*****************************************************************************************");
 //          ROS_INFO_STREAM("[LocalPlanner]: workspace pos is " << workspacePos_);
@@ -4041,7 +4060,7 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
           }
           Eigen::Vector3d vertex_eigen(vertex(0), vertex(1), 0);
           Eigen::Vector3d vertex_w_eigen;
-          vertex_w_eigen = targetOrientation.toRotationMatrix() * vertex_eigen + t_bw;
+          vertex_w_eigen = targetDigOrientation.toRotationMatrix() * vertex_eigen + t_bw_dig;
           Eigen::Vector2d vertex_w(vertex_w_eigen(0), vertex_w_eigen(1));
           // check that vertex_w is not nan
           if (vertex_w.x() != vertex_w.x() || vertex_w.y() != vertex_w.y()) {
@@ -4062,7 +4081,7 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
           }
           Eigen::Vector3d vertex_eigen(vertex(0), vertex(1), 0);
           Eigen::Vector3d vertex_w_eigen;
-          vertex_w_eigen = targetOrientation.toRotationMatrix() * vertex_eigen + t_bw;
+          vertex_w_eigen = targetDigOrientation.toRotationMatrix() * vertex_eigen + t_bw_dig;
           Eigen::Vector2d vertex_w(vertex_w_eigen(0), vertex_w_eigen(1));
           // check that vertex_w is not nan
           if (vertex_w.x() != vertex_w.x() || vertex_w.y() != vertex_w.y()) {

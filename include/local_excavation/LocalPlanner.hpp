@@ -249,7 +249,7 @@ class LocalPlanner {
   // set dig and dump zone
   void setDigZone(int zoneId);
   void setDumpZone(int zoneId);
-  void loadWorkspace(double workspaceId = -1);
+  void loadWorkspace(double workspaceId = -1, bool fromSamePosition = false);
   void setCurrentWorkspaceIndex(int index) { currentWorkspaceIndex_ = index; }
   int getCurrentWorkspaceIndex() { return currentWorkspaceIndex_; }
   int getDigZoneId() { return digZoneId_; }
@@ -306,7 +306,9 @@ class LocalPlanner {
   // to the digging point
 
   Eigen::Vector3d workspacePos_ = Eigen::Vector3d::Zero();
+  Eigen::Vector3d workspaceDigPos_ = Eigen::Vector3d::Zero();
   Eigen::Quaterniond workspaceOrientation_ = Eigen::Quaterniond::Identity();
+  Eigen::Quaterniond workspaceDigOrientation_ = Eigen::Quaterniond::Identity();
 
   grid_map::Position3 diggingPoint_;
   grid_map::Index diggingPointLocalIndex_;
@@ -435,6 +437,7 @@ class LocalPlanner {
 
   // boolean to indicate whether a reset is needed
   bool createNewZones_ = true;
+  bool nextWorkspaceFromSamePose_ = false;
   double remainingVolumeRatio_;
   double missingCellsRatio_;
   double remainingVolume_;
