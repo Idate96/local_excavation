@@ -1340,8 +1340,8 @@ namespace local_excavation {
     double baseHeading = rpy_(2);
     // this cannot be right
     // print base nad relative heading
-    ROS_INFO_STREAM("baseHeading: " << baseHeading);
-    ROS_INFO_STREAM("relativeHeading: " << relativeHeading);
+//    ROS_INFO_STREAM("baseHeading: " << baseHeading);
+//    ROS_INFO_STREAM("relativeHeading: " << relativeHeading);
     if (baseHeading < 0) {
       baseHeading = M_PI + baseHeading;
     }
@@ -1386,9 +1386,9 @@ namespace local_excavation {
     double diggingPathAngle = desiredLocalAttitudeAngle - alpha;
     double heightChange = std::min(elevation - desiredElevation, maxDigDepth_);
     // this is probably the problem
-      ROS_INFO_STREAM("[LocalPlanner]: heightChange: " << heightChange);
-      // print diggingPathAngle
-      ROS_INFO_STREAM("[LocalPlanner]: diggingPathAngle: " << diggingPathAngle);
+//      ROS_INFO_STREAM("[LocalPlanner]: heightChange: " << heightChange);
+//      // print diggingPathAngle
+//      ROS_INFO_STREAM("[LocalPlanner]: diggingPathAngle: " << diggingPathAngle);
 //    double horizontalDisplacement = abs(heightChange * tan(diggingPathAngle));
 //      ROS_INFO_STREAM("[LocalPlanner]: horizontalDisplacement: " << horizontalDisplacement);
 //      w_P_dd1.head(2) = w_P_dba * horizontalDisplacement;
@@ -1628,7 +1628,7 @@ namespace local_excavation {
     double endClosingAngle = - M_PI * 3./4.;
     std::vector<Eigen::Vector3d> closingPoints;
     std::vector<Eigen::Quaterniond> closingOrientations;
-    int numPoints = 5;
+    int numPoints = 3;
     for (int i = 1; i < numPoints; i++) {
       double angle = std::max(startClosingAngle + (endClosingAngle - startClosingAngle) * (2 * (double) i) / (numPoints - 1), endClosingAngle);
       Eigen::Vector3d w_P_wd = w_P_wd_last + w_P_dba.normalized().head(2) * ((double) i) /(numPoints - 1) * closingRadialTranslation;
@@ -2295,7 +2295,7 @@ namespace local_excavation {
     Eigen::Vector3d w_P_wd1 = w_P_wd;
     w_P_wd1(2) -= heightChange;
     double horizontalChange = heightChange * tan(-attitudeAngle);
-    ROS_INFO_STREAM("[LocalPlanner]: horizontalChange: " << horizontalChange);
+//    ROS_INFO_STREAM("[LocalPlanner]: horizontalChange: " << horizontalChange);
     w_P_wd_off.head(2) = w_P_wd.head(2) + horizontalChange * w_P_dba;
     Eigen::Quaterniond R_ws_d1 = this->get_R_sw(0, -attitudeAngle, heading);
     //  this->publishVector(w_P_wd, w_P_dd1, "map");
@@ -2427,7 +2427,7 @@ namespace local_excavation {
     }
     // print refinement steps
     // ROS_INFO_STREAM("[LocalPlanner]: numSteps " << numSteps)
-    ROS_INFO_STREAM("[LocalPlanner]: numStepsOutsideRefinement " << numStepsOutsideRefinement);
+
     // accumulate volume in the step volumes
 //    ROS_INFO_STREAM("[LocalPlanner]: total area " << area);
     // reset planning elevation
@@ -2482,7 +2482,7 @@ namespace local_excavation {
     double endClosingAngle = targetRefinementAttitudeInner_;
     std::vector<Eigen::Vector3d> closingPoints;
     std::vector<Eigen::Quaterniond> closingOrientations;
-    int numPoints = 5;
+    int numPoints = 3;
     for (int i = 1; i < numPoints; i++) {
       double angle = std::max(startClosingAngle + (endClosingAngle - startClosingAngle) * (2 * (double) i) / (numPoints - 1), endClosingAngle);
       Eigen::Vector3d w_P_wd = w_P_wd_last + w_P_dba.normalized().head(2) * ((double) i) /(numPoints - 1) * closingRadialTranslation;
