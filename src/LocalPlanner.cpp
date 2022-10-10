@@ -3999,8 +3999,8 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
           //    ROS_INFO_STREAM("[LocalPlanner]: using set workspace pose");
           if (nextWorkspaceFromSamePose_){
             // we just set the workspaceDigPos_ and workspaceDigOrientation_ to the current workspace pose
-            targetDigOrientation = workspaceDigOrientation_;
-            t_bw_dig = workspaceDigPos_;
+            targetDigOrientation = workspaceOrientation_;
+            t_bw_dig = workspacePos_;
             targetOrientation =
                 Eigen::Quaterniond(T_bw.transform.rotation.w, T_bw.transform.rotation.x,
                                    T_bw.transform.rotation.y, T_bw.transform.rotation.z);
@@ -4009,11 +4009,11 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
 
           } else {
             targetOrientation = workspaceOrientation_;
-            targetDigOrientation = workspaceDigOrientation_;
+            targetDigOrientation = workspaceOrientation_;
             // todo: put proper translation vector
             // t_bw = Eigen::Vector3d(T_bw.transform.translation.x, T_bw.transform.translation.y, T_bw.transform.translation.z);
             t_bw = workspacePos_;
-            t_bw_dig = workspaceDigPos_;
+            t_bw_dig = workspacePos_;
           }
 
 //          ROS_INFO_STREAM(
