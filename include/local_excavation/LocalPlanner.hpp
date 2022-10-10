@@ -397,6 +397,10 @@ class LocalPlanner {
   grid_map::Polygon refinementZone_;
   bool doRefinement_;
 
+  // dig area headings
+  double minRelHeading_;
+  double maxRelHeading_;
+
   void createShovelFilter();
   std::vector<Eigen::Vector2d> shovelFilter_;
   // compute volume between shovel pts

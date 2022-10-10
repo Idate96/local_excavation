@@ -11,7 +11,7 @@ local_excavation:
   min_distance_shovel_to_base_dig: 4.2
   min_distance_shovel_to_base_refined: 4.4
   workspace_angle: 1.9 # radians
-  max_volume: 0.8 # soil volume in m^3
+  max_volume: 0.7 # soil volume in m^3
   max_dirt_volume: 0.8
   volume_weight: 1
   swept_area_weight: 1
@@ -48,17 +48,17 @@ local_excavation:
   max_dig_dirt_depth: 0.7
   dragging_distance: 1.5
   dragging_dirt_distance: 0.1
-  dragging_angle: 1.4
+  dragging_angle: 1.2
   refinement_angle: 0.8
-  closing_z_translation: 0.8
+  closing_z_translation: 1.1
   min_distance_collision: 1.0
   min_distance_collision_refinement: 1.0
   target_dig_attitude: 0.52
-  target_dig_attitude_inner: 1.2
+  target_dig_attitude_inner: 1.1
   target_dig_dirt_attitude: 1.0
   target_dig_dirt_attitude_inner: 1.4
   target_refinement_attitude: 0.52
-  target_refinement_attitude_inner: 0.9
+  target_refinement_attitude_inner: 1.2
   target_height_diff_threshold: 0.3
   min_scoop_volume: 0.15
   ignore_scoop_volume: 0.05
@@ -77,4 +77,4 @@ local_excavation:
   dig_zone_teeth_number: 1
   refine: true
   effective_shovel_width: 0.7
-  effective_shovel_width_refinement: 0.6
+  effective_shovel_width_refinement: 0.7

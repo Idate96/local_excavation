@@ -499,7 +499,7 @@ namespace local_excavation {
     circularOuterWorkspaceOuterRadius_ = circularWorkspaceOuterRadius_ * circularOuterWorkspaceOuterRadiusFactor_;
     circularOuterWorkspaceInnerRadius_ = circularWorkspaceInnerRadius_ * circularOuterWorkspaceInnerRadiusFactor_;
     circularOuterWorkspaceAngle_ = circularWorkspaceAngle_ * circularOuterWorkspaceAngleFactor_;
-    refinementAngleIncrement_ =  1.1 * effectiveShovelWidthRefinement_ / circularOuterWorkspaceOuterRadius_;
+    refinementAngleIncrement_ =  1.8 * effectiveShovelWidthRefinement_ / circularOuterWorkspaceOuterRadius_;
     previousRefinementHeading_ = -circularOuterWorkspaceAngle_ + 0.05;
     return true;
     //  // load the parameters
@@ -1204,6 +1204,9 @@ namespace local_excavation {
         if (planningMap_.at("dug_area", index) == 0) {
           areaSign = 0;
         }
+        if (planningMap_.at("excavation_mask", index) > -0.99){
+          areaSign = -10;
+        }
       }
       if (planningMap_.at("planning_refinement", index) == 0){
         lineWorkspaceSweptArea += areaSign * planningMap_.getResolution() * planningMap_.getResolution();
@@ -1308,33 +1311,37 @@ namespace local_excavation {
     // base to digging point in world frame
     Eigen::Vector3d w_P_bad = w_P_wd - w_P_wba_;
     // print w_P_wba and w_P_wba_
-     ROS_INFO_STREAM("w_P_wba: " << w_P_wba.transpose());
-     ROS_INFO_STREAM("w_P_wba_: " << w_P_wba_.transpose());
+//     ROS_INFO_STREAM("w_P_wba: " << w_P_wba.transpose());
+//     ROS_INFO_STREAM("w_P_wba_: " << w_P_wba_.transpose());
     
     //  ROS_INFO_STREAM("[LocalPlanner]: digging point wrt base in world frame: " << w_P_bad.transpose());
     // transform from world to base frame using R_mba
     // convert R_mba to eigen quaternion
     Eigen::Quaterniond R_mba_qe(R_mba_q.w(), R_mba_q.x(), R_mba_q.y(), R_mba_q.z());
     // print R_mba_qe and R_mba_q_
-      ROS_INFO_STREAM("R_mba_qe: " << R_mba_qe.coeffs().transpose());
-      ROS_INFO_STREAM("R_mba_q_: " << R_mba_q_.coeffs().transpose());
+//      ROS_INFO_STREAM("R_mba_qe: " << R_mba_qe.coeffs().transpose());
+//      ROS_INFO_STREAM("R_mba_q_: " << R_mba_q_.coeffs().transpose());
     // print yaw_b and rpy_(2)
-      ROS_INFO_STREAM("yaw_b: " << yaw_b);
-      ROS_INFO_STREAM("rpy_(2): " << rpy_(2));
+//      ROS_INFO_STREAM("yaw_b: " << yaw_b);
+//      ROS_INFO_STREAM("rpy_(2): " << rpy_(2));
     // transform w_P_bad from world to base frame using R_mba
     Eigen::Vector3d ba_P_bad = R_mba_qe.inverse() * w_P_bad;
     Eigen::Vector3d ba_P_bad_= R_mba_q_.inverse() * w_P_bad;
     // print ba_P_bad and ba_P_bad_
-      ROS_INFO_STREAM("ba_P_bad: " << ba_P_bad.transpose());
-      ROS_INFO_STREAM("ba_P_bad_: " << ba_P_bad_.transpose());
+//      ROS_INFO_STREAM("ba_P_bad: " << ba_P_bad.transpose());
+//      ROS_INFO_STREAM("ba_P_bad_: " << ba_P_bad_.transpose());
 
     // relative heading
     //   ROS_INFO_STREAM("[LocalPlanner]: digging point wrt base in base frame: " << ba_P_bad.transpose());
-    double relativeHeading = atan2(ba_P_bad(1), ba_P_bad(0));
+    double relativeHeading = atan2(ba_P_bad_(1), ba_P_bad_(0));
     //   ROS_INFO_STREAM("Base heading in map frame: " <<  yaw_b);
     //   ROS_INFO_STREAM("[LocalPlanner]: opt traj relative heading is " << relativeHeading);
-    // wrap rpy_(2) between [0, M_PI]
+    // wrap rpy_(2) between [0, 2 M_PI]
     double baseHeading = rpy_(2);
+    // this cannot be right
+    // print base nad relative heading
+    ROS_INFO_STREAM("baseHeading: " << baseHeading);
+    ROS_INFO_STREAM("relativeHeading: " << relativeHeading);
     if (baseHeading < 0) {
       baseHeading = M_PI + baseHeading;
     }
@@ -1368,7 +1375,7 @@ namespace local_excavation {
     // penetration vector
     Eigen::Vector3d w_P_dd1 = Eigen::Vector3d(0, 0, 0);
     // vertical displacement is the difference between the desired elevation and the elevation of the digging point
-    w_P_dd1(2) = std::max(desiredElevation - elevation, -maxDigDepth_);  // fix maximal depth
+//    w_P_dd1(2) = std::max(desiredElevation - elevation, -maxDigDepth_);  // fix maximal depth
     //  ROS_INFO_STREAM("[LocalPlanner]: w_P_dd1 depth: " << w_P_dd1(2));
     // these angles are all wrt the digging direction
     // for flat ground the desired attitude angle corresponds does not
@@ -1379,17 +1386,20 @@ namespace local_excavation {
     double diggingPathAngle = desiredLocalAttitudeAngle - alpha;
     double heightChange = std::min(elevation - desiredElevation, maxDigDepth_);
     // this is probably the problem
-    //  ROS_INFO_STREAM("[LocalPlanner]: heightChange: " << heightChange);
-    double horizontalDisplacement = heightChange / tan(diggingPathAngle);
-    //  w_P_dd1.head(2) = w_P_dba * horizontalDisplacement;
-    w_P_dd1.head(2) = (-w_P_dd1(2) * tan(attitudeAngle)) * w_P_dba;
+      ROS_INFO_STREAM("[LocalPlanner]: heightChange: " << heightChange);
+      // print diggingPathAngle
+      ROS_INFO_STREAM("[LocalPlanner]: diggingPathAngle: " << diggingPathAngle);
+//    double horizontalDisplacement = abs(heightChange * tan(diggingPathAngle));
+//      ROS_INFO_STREAM("[LocalPlanner]: horizontalDisplacement: " << horizontalDisplacement);
+//      w_P_dd1.head(2) = w_P_dba * horizontalDisplacement;
+//    w_P_dd1.head(2) = (-w_P_dd1(2) * tan(attitudeAngle)) * w_P_dba;
     //   ROS_INFO_STREAM("[LocalPlanner]: w_P_dd1: " << w_P_dd1.transpose());
     //   ROS_INFO_STREAM("[LocalPlanner]: digging vector in world frame " << w_P_dd1.transpose());
     //   ROS_INFO_STREAM("[LocalPlanner]: horizontal displacement " << horizontalDisplacement);
 
     Eigen::Vector3d w_P_wd1 = w_P_wd;
     w_P_wd1(2) -= heightChange;
-    w_P_wd_off.head(2) = w_P_wd.head(2) - (-w_P_dd1(2) * tan(attitudeAngle)) * w_P_dba;
+    w_P_wd_off.head(2) = w_P_wd.head(2) + (heightChange * tan(-attitudeAngle)) * w_P_dba;
     Eigen::Quaterniond R_ws_d1 = this->get_R_sw(0, -attitudeAngle, heading);
 
     //  this->publishVector(w_P_wd, w_P_dd1, "map");
@@ -1609,30 +1619,46 @@ namespace local_excavation {
     std::vector<Eigen::Quaterniond> smoothedOrientations;
     this->getShovelOrientation(smoothedDigPoints, smoothedOrientations, draggingDistance_, targetDigAttitudeInner_, attitudeAngle, heading);
 
+    // we create the last part of the trajectory as an arc or a circe
     Eigen::Vector3d w_P_wd_last = smoothedDigPoints.back();
     // get the orientation of the shovel at the last point
     Eigen::Quaterniond R_ws_d_last = smoothedOrientations.back();
-    Eigen::Vector3d closingOffset(0.4, 0, 0.7);
-    double scaling = 0.3;
-    Eigen::Vector3d w_P_d2d3 = w_P_dba.normalized() * scaling;
-    // get desired height at the end of the trajectory
-    grid_map::Position wg_P_wd2(w_P_wd_last(0), w_P_wd_last(1));
-    double elevation2 = excavationMappingPtr_->getElevation(wg_P_wd2);
-    grid_map::Index index2;
-    planningMap_.getIndex(wg_P_wd2, index2);
-    double desiredElevation2 = planningMap_.at(targetLayer, index2);
-    // vertical displacement is the difference between the desired elevation and the elevation of the digging point
-    w_P_d2d3(2) = elevation2 - desiredElevation + closingOffset(2);
-    // transfrom to world frame by rotating yaw angle around the z axis
-    Eigen::AngleAxisd R_wc(heading, Eigen::Vector3d::UnitZ());
-    Eigen::Vector3d w_P_wd3 = w_P_wd_last + w_P_d2d3;
-    w_P_wd3(2) = w_P_wd_last(2) + closingOffset(2);
-    Eigen::Vector3d w_P_wd4 = w_P_wd3 + closingZTranslation_ * Eigen::Vector3d::UnitZ();
-    double theta = M_PI / 2 - M_PI / 2;  // last quadrant of the circle
-    //  Eigen::Vector3d w_P_wd3 =
-    //      w_P_wd2 +
-    Eigen::Quaterniond R_ws_d3 = this->get_R_sw(0, -M_PI * 3 / 4, heading);
-    Eigen::Quaterniond R_ws_d4 = R_ws_d3;
+    double closingRadialTranslation = 0.4;
+    double startClosingAngle = - targetDigAttitudeInner_;
+    double endClosingAngle = - M_PI * 3./4.;
+    std::vector<Eigen::Vector3d> closingPoints;
+    std::vector<Eigen::Quaterniond> closingOrientations;
+    int numPoints = 5;
+    for (int i = 1; i < numPoints; i++) {
+      double angle = std::max(startClosingAngle + (endClosingAngle - startClosingAngle) * (2 * (double) i) / (numPoints - 1), endClosingAngle);
+      Eigen::Vector3d w_P_wd = w_P_wd_last + w_P_dba.normalized().head(2) * ((double) i) /(numPoints - 1) * closingRadialTranslation;
+      w_P_wd(2) = w_P_wd_last(2) + 0.3 * std::pow(((double) i /(numPoints - 1) * 2 * closingZTranslation_), 2);
+      closingPoints.push_back(w_P_wd);
+      Eigen::Quaterniond R_ws_d = this->get_R_sw(0.0, angle, heading);
+      closingOrientations.push_back(R_ws_d);
+    }
+
+//    Eigen::Vector3d closingOffset(0.4, 0, closingZTranslation_);
+//    double scaling = 0.1;
+//    Eigen::Vector3d w_P_d2d3 = w_P_dba.normalized() * scaling;
+//    // get desired height at the end of the trajectory
+//    grid_map::Position wg_P_wd2(w_P_wd_last(0), w_P_wd_last(1));
+//    double elevation2 = excavationMappingPtr_->getElevation(wg_P_wd2);
+//    grid_map::Index index2;
+//    planningMap_.getIndex(wg_P_wd2, index2);
+//    double desiredElevation2 = planningMap_.at(targetLayer, index2);
+//    // vertical displacement is the difference between the desired elevation and the elevation of the digging point
+//    w_P_d2d3(2) = elevation2 - desiredElevation + closingOffset(2);
+//    // transfrom to world frame by rotating yaw angle around the z axis
+//    Eigen::AngleAxisd R_wc(heading, Eigen::Vector3d::UnitZ());
+//    Eigen::Vector3d w_P_wd3 = w_P_wd_last + w_P_d2d3;
+//    w_P_wd3(2) = w_P_wd_last(2) + 0.1;
+//    Eigen::Vector3d w_P_wd4 = w_P_wd3 + closingZTranslation_ * Eigen::Vector3d::UnitZ() + w_P_dba.normalized() * 0.2;
+//    double theta = M_PI / 2 - M_PI / 2;  // last quadrant of the circle
+//    //  Eigen::Vector3d w_P_wd3 =
+//    //      w_P_wd2 +
+//    Eigen::Quaterniond R_ws_d3 = this->get_R_sw(0, -draggingAngle_ + 0.1, heading);
+//    Eigen::Quaterniond R_ws_d4 = this->get_R_sw(0, -M_PI * 3. / 4, heading);
     //  ROS_INFO_STREAM("[LocalPlanner]: Euler angles 3 " << R_ws_d3.toRotationMatrix().eulerAngles(0, 1, 2).transpose());
 
     // fuse together the two trajectories
@@ -1643,15 +1669,27 @@ namespace local_excavation {
     digPointsFused.push_back(w_P_wd1);
     digOrientationsFused.push_back(R_ws_d1);
     // append digPoints vector to digPointsFused
-    digPointsFused.insert(digPointsFused.end(), smoothedDigPoints.begin(), smoothedDigPoints.end() - 1);
+    digPointsFused.insert(digPointsFused.end(), smoothedDigPoints.begin(), smoothedDigPoints.end());
     digOrientationsFused.insert(digOrientationsFused.end(), smoothedOrientations.begin(),
-                                smoothedOrientations.end() - 1);
+                                smoothedOrientations.end());
     //    digPointsFused.push_back(w_P_wd_last);
     //    digOrientationsFused.push_back(R_ws_d_last);
-    digPointsFused.push_back(w_P_wd3);
-    digOrientationsFused.push_back(R_ws_d3);
-    digPointsFused.push_back(w_P_wd4);
-    digOrientationsFused.push_back(R_ws_d4);
+//    digPointsFused.push_back(w_P_wd3);
+//    digOrientationsFused.push_back(R_ws_d3);
+//    digPointsFused.push_back(w_P_wd4);
+//    digOrientationsFused.push_back(R_ws_d4);
+    // add closing points
+    digPointsFused.insert(digPointsFused.end(), closingPoints.begin(), closingPoints.end());
+    digOrientationsFused.insert(digOrientationsFused.end(), closingOrientations.begin(),
+                                closingOrientations.end());
+
+    if (debug){
+      // print the z coordinates
+      ROS_INFO_STREAM("[LocalPlanner]: smoothing enabled " << smoothZCoordinates_);
+      for (size_t i = 0; i < digPointsFused.size(); i++) {
+        ROS_INFO_STREAM("[LocalPlanner]: dig point " << i << " " << digPointsFused[i].transpose());
+      }
+    }
     // check if digPointFused size is bigger then 0 else raise an warning
     if (digPointsFused.size() == 0) {
       ROS_WARN_STREAM("[LocalPlanner]: could not find a valid trajectory!");
@@ -2187,13 +2225,19 @@ namespace local_excavation {
     // relative heading
     //   ROS_INFO_STREAM("[LocalPlanner]: digging point wrt base in base frame: " << ba_P_bad.transpose());
     double relativeHeading = atan2(ba_P_bad(1), ba_P_bad(0));
-    if (relativeHeading - previousRefinementHeading_ > refinementAngleIncrement_){
+//    ROS_INFO_STREAM("[LocalPlanner]: relative heading: " << relativeHeading);
+    if (relativeHeading - previousRefinementHeading_ > refinementAngleIncrement_ || relativeHeading - previousRefinementHeading_ < -refinementAngleIncrement_) {
       return Trajectory();
     }
-
-    //   ROS_INFO_STREAM("Base heading in map frame: " <<  yaw_b);
-    //   ROS_INFO_STREAM("[LocalPlanner]: opt traj relative heading is " << relativeHeading);
-    double heading = -rpy_(2) - relativeHeading;
+    double baseHeading = rpy_(2);
+    // this cannot be right
+    // print base nad relative heading
+//    ROS_INFO_STREAM("baseHeading: " << baseHeading);
+//    ROS_INFO_STREAM("relativeHeading: " << relativeHeading);
+    if (baseHeading < 0) {
+      baseHeading = M_PI + baseHeading;
+    }
+    double heading = - (baseHeading + relativeHeading);
     //   ROS_INFO_STREAM("[LocalPlanner]: opt traj heading " << heading);
 
     //  ROS_INFO_STREAM("[LocalPlanner]: True boom heading " << shovelYaw);
@@ -2215,7 +2259,7 @@ namespace local_excavation {
     // this is convenient in practice because the height map might be imprecise and we might encounter soil before we expect it.
     Eigen::Vector3d w_P_wd_off = w_P_wd - verticalOffset_ * tan(attitudeAngle) * w_P_dba;
     // apply radialOffset_ in the direction dba
-//    w_P_wd_off = w_P_wd_off - radialOffset_ * w_P_dba;
+    w_P_wd_off = w_P_wd_off - radialOffset_ * w_P_dba;
     w_P_wd_off(2) = w_P_wd(2) + verticalOffset_;
 
     // this takes care of the fact that we have a penetration phase
@@ -2226,7 +2270,7 @@ namespace local_excavation {
     // penetration vector
     Eigen::Vector3d w_P_dd1 = Eigen::Vector3d(0, 0, 0);
     // vertical displacement is the difference between the desired elevation and the elevation of the digging point
-    w_P_dd1(2) = std::max(desiredElevation - elevation, -maxDigDepth_);  // fix maximal depth
+    //    w_P_dd1(2) = std::max(desiredElevation - elevation, -maxDigDepth_);  // fix maximal depth
     //  ROS_INFO_STREAM("[LocalPlanner]: w_P_dd1 depth: " << w_P_dd1(2));
     // these angles are all wrt the digging direction
     // for flat ground the desired attitude angle corresponds does not
@@ -2237,19 +2281,23 @@ namespace local_excavation {
     double diggingPathAngle = desiredLocalAttitudeAngle - alpha;
     double heightChange = std::min(elevation - desiredElevation, maxDigDepth_);
     // this is probably the problem
-    //  ROS_INFO_STREAM("[LocalPlanner]: heightChange: " << heightChange);
-    double horizontalDisplacement = heightChange / tan(diggingPathAngle);
-    //  w_P_dd1.head(2) = w_P_dba * horizontalDisplacement;
-    w_P_dd1.head(2) = (-w_P_dd1(2) * tan(attitudeAngle)) * w_P_dba;
+//    ROS_INFO_STREAM("[LocalPlanner]: heightChange: " << heightChange);
+//    // print diggingPathAngle
+//    ROS_INFO_STREAM("[LocalPlanner]: diggingPathAngle: " << diggingPathAngle);
+//    double horizontalDisplacement = abs(heightChange * tan(diggingPathAngle));
+//      ROS_INFO_STREAM("[LocalPlanner]: horizontalDisplacement: " << horizontalDisplacement);
+//      w_P_dd1.head(2) = w_P_dba * horizontalDisplacement;
+//    w_P_dd1.head(2) = (-w_P_dd1(2) * tan(attitudeAngle)) * w_P_dba;
     //   ROS_INFO_STREAM("[LocalPlanner]: w_P_dd1: " << w_P_dd1.transpose());
     //   ROS_INFO_STREAM("[LocalPlanner]: digging vector in world frame " << w_P_dd1.transpose());
     //   ROS_INFO_STREAM("[LocalPlanner]: horizontal displacement " << horizontalDisplacement);
 
     Eigen::Vector3d w_P_wd1 = w_P_wd;
     w_P_wd1(2) -= heightChange;
-    w_P_wd_off.head(2) = w_P_wd.head(2) - (-w_P_dd1(2) * tan(attitudeAngle)) * w_P_dba;
+    double horizontalChange = heightChange * tan(-attitudeAngle);
+    ROS_INFO_STREAM("[LocalPlanner]: horizontalChange: " << horizontalChange);
+    w_P_wd_off.head(2) = w_P_wd.head(2) + horizontalChange * w_P_dba;
     Eigen::Quaterniond R_ws_d1 = this->get_R_sw(0, -attitudeAngle, heading);
-
     //  this->publishVector(w_P_wd, w_P_dd1, "map");
 
     bool valid = true;
@@ -2261,8 +2309,8 @@ namespace local_excavation {
     double workspaceVolume = 0;
     double area = 0;
 
-    Eigen::Vector3d s_posLeftShovel_cl(0.0, 0.60, 0.0);
-    Eigen::Vector3d s_posRightShovel_cr(0.0, -0.60, 0.0);
+    Eigen::Vector3d s_posLeftShovel_cl(0.0, effectiveShovelWidthRefinement_, 0.0);
+    Eigen::Vector3d s_posRightShovel_cr(0.0, -effectiveShovelWidthRefinement_, 0.0);
     // now we march with step size of planningMap resolution / 2 in the direction of the boom direction until the trajectory is not valid
     // anymore
     int numSteps = 0;
@@ -2377,11 +2425,15 @@ namespace local_excavation {
       w_P_wd_current = w_P_next;
       numSteps++;
     }
+    // print refinement steps
+    // ROS_INFO_STREAM("[LocalPlanner]: numSteps " << numSteps)
+    ROS_INFO_STREAM("[LocalPlanner]: numStepsOutsideRefinement " << numStepsOutsideRefinement);
     // accumulate volume in the step volumes
 //    ROS_INFO_STREAM("[LocalPlanner]: total area " << area);
     // reset planning elevation
     if (markRefinedArea){
       planningMap_["refined_zone"] = planningMap_["planning_refinement"];
+      previousRefinementHeading_ = heading;
     } else {
       planningMap_["planning_refinement"] = planningMap_["refined_zone"];
     }
@@ -2390,25 +2442,55 @@ namespace local_excavation {
       return Trajectory();
     }
 
-//     std::vector<Eigen::Vector3d> smoothedDigPoints;
-//     // smoothing points
-// //    ROS_INFO_STREAM("[LocalPlanner]: smoothing points, num steps outside refinement " << numStepsOutsideRefinement << " num steps " << digPoints.size());
-//     // smooth the last numStepsOutOfRefinement dig points
-//     if (numStepsOutsideRefinement > 4){
-//       std::vector<Eigen::Vector3d> digPointsToSmooth;
-//       for (int i = digPoints.size() - numStepsOutsideRefinement; i < digPoints.size(); i++){
-//         digPointsToSmooth.push_back(digPoints.at(i));
-//       }
-//       smoothedDigPoints = this->smoothZCoordinates(digPointsToSmooth);
-//       // append the rest of the points
-//       smoothedDigPoints.insert(smoothedDigPoints.begin(), digPoints.begin(), digPoints.end() - numStepsOutsideRefinement);
-//     } else {
-//       smoothedDigPoints = digPoints;
-//     }
-//     if (smoothedDigPoints.size() == 0) {
-//       return Trajectory();
-//     }
-//     std::vector<Eigen::Quaterniond> smoothedOrientations;
+     std::vector<Eigen::Vector3d> smoothedDigPoints;
+     // smoothing points
+ //    ROS_INFO_STREAM("[LocalPlanner]: smoothing points, num steps outside refinement " << numStepsOutsideRefinement << " num steps " << digPoints.size());
+     // smooth the last numStepsOutOfRefinement dig points
+     if (numStepsOutsideRefinement > 4){
+       std::vector<Eigen::Vector3d> digPointsToSmooth;
+       for (int i = digPoints.size() - numStepsOutsideRefinement; i < digPoints.size(); i++){
+         digPointsToSmooth.push_back(digPoints.at(i));
+       }
+       smoothedDigPoints = this->smoothZCoordinates(digPointsToSmooth);
+//       // z coordinates of a successive point is bounded by the previous point
+       for (int i = 0; i < smoothedDigPoints.size(); i++) {
+          if (i > 0) {
+            smoothedDigPoints.at(i)(2) = std::max(smoothedDigPoints.at(i)(2), smoothedDigPoints.at(i - 1)(2));
+          }
+       }
+       // append the rest of the points
+       smoothedDigPoints.insert(smoothedDigPoints.begin(), digPoints.begin(), digPoints.end() - numStepsOutsideRefinement);
+     } else {
+       smoothedDigPoints = digPoints;
+     }
+     if (smoothedDigPoints.size() == 0) {
+       return Trajectory();
+     }
+     std::vector<Eigen::Quaterniond> smoothedOrientations;
+     // same orientations as digOrientations until the last numStepsOutsideRefinement
+     // after that copy the last value until it the vector has the same size as smoothedDigPoints
+      smoothedOrientations.insert(smoothedOrientations.begin(), digOrientations.begin(), digOrientations.end() - numStepsOutsideRefinement);
+      for (int i = digOrientations.size() - numStepsOutsideRefinement; i < smoothedDigPoints.size(); i++){
+        smoothedOrientations.push_back(digOrientations.back());
+      }
+
+    Eigen::Vector3d w_P_wd_last = smoothedDigPoints.back();
+    // get the orientation of the shovel at the last point
+    Eigen::Quaterniond R_ws_d_last = smoothedOrientations.back();
+    double closingRadialTranslation = -0.4;
+    double startClosingAngle = targetRefinementAttitudeInner_;
+    double endClosingAngle = targetRefinementAttitudeInner_;
+    std::vector<Eigen::Vector3d> closingPoints;
+    std::vector<Eigen::Quaterniond> closingOrientations;
+    int numPoints = 5;
+    for (int i = 1; i < numPoints; i++) {
+      double angle = std::max(startClosingAngle + (endClosingAngle - startClosingAngle) * (2 * (double) i) / (numPoints - 1), endClosingAngle);
+      Eigen::Vector3d w_P_wd = w_P_wd_last + w_P_dba.normalized().head(2) * ((double) i) /(numPoints - 1) * closingRadialTranslation;
+      w_P_wd(2) = w_P_wd_last(2) + 0.3 * std::pow(((double) i /(numPoints - 1) * 2 * closingZTranslation_), 2);
+      closingPoints.push_back(w_P_wd);
+      Eigen::Quaterniond R_ws_d = this->get_R_sw(0.0, -angle, heading);
+      closingOrientations.push_back(R_ws_d);
+    }
 //     // iterate over the dig points, compute the distance from base
 //     for (size_t i = 0; i < smoothedDigPoints.size(); i++) {
 //       Eigen::Vector3d w_P_wd = smoothedDigPoints.at(i);
@@ -2436,16 +2518,24 @@ namespace local_excavation {
     std::vector<Eigen::Quaterniond> digOrientationsFused;
     digPointsFused.push_back(w_P_wd_off);
     digOrientationsFused.push_back(R_ws_d);
-    digPointsFused.push_back(w_P_wd1);
-    digOrientationsFused.push_back(R_ws_d1);
-    digPointsFused.insert(digPointsFused.end(), digPoints.begin(), digPoints.end());
-    digOrientationsFused.insert(digOrientationsFused.end(), digOrientations.begin(), digOrientations.end());
+//    digPointsFused.push_back(w_P_wd1);
+//    digOrientationsFused.push_back(R_ws_d1);
+    digPointsFused.insert(digPointsFused.end(), smoothedDigPoints.begin(), smoothedDigPoints.end());
+    digOrientationsFused.insert(digOrientationsFused.end(), smoothedOrientations.begin(), smoothedOrientations.end());
+    // add closing points
+    digPointsFused.insert(digPointsFused.end(), closingPoints.begin() + 1, closingPoints.end());
+    digOrientationsFused.insert(digOrientationsFused.end(), closingOrientations.begin() + 1, closingOrientations.end());
+    if (debug){
+      for (size_t i = 0; i < digPointsFused.size(); i++) {
+        ROS_INFO_STREAM("[LocalPlanner]: digPointsFused " << digPointsFused[i].transpose());
+      }
+    }
     // create a new point that has the same x and y of the last position by z shifted upwards of 1 m
-    Eigen::Vector3d w_P_wd_last = digPointsFused.back();
-    Eigen::Vector3d w_P_wd_last_up = w_P_wd_last;
-    w_P_wd_last_up.z() += 1;
-    digPointsFused.push_back(w_P_wd_last_up);
-    digOrientationsFused.push_back(digOrientationsFused.back());
+//    Eigen::Vector3d w_P_wd_last = digPointsFused.back();
+//    Eigen::Vector3d w_P_wd_last_up = w_P_wd_last;
+//    w_P_wd_last_up.z() += 0.8;
+//    digPointsFused.push_back(w_P_wd_last_up);
+//    digOrientationsFused.push_back(digOrientationsFused.back());
     Trajectory trajectory;
     trajectory.positions = digPointsFused;
     trajectory.orientations = digOrientationsFused;
@@ -2770,37 +2860,52 @@ namespace local_excavation {
     // for the swept area by the trajectory
     ROS_INFO_STREAM("[LocalPlanner]: Optimizing refinement trajectory");
     std::string targetLayer = "desired_elevation";
-
+    double refHeading = previousRefinementHeading_ + refinementAngleIncrement_;
+    // print current and previous refinement heading
+    ROS_INFO_STREAM("[LocalPlanner]: Current refinement heading " << refHeading);
+    ROS_INFO_STREAM("[LocalPlanner]: Previous refinement heading " << previousRefinementHeading_);
     Trajectory bestTrajectory;
     double maxObjective = -10;
-    for (grid_map::PolygonIterator iterator(planningMap_,
-                                            refinementZone_); !iterator.isPastEnd(); ++iterator){
-      // skipping conditions
-      // get index
-      grid_map::Index index(*iterator);
-      if (planningMap_.at("dug_area", index) != 1) {
-        continue;
-      }
-      // get the position of the point
-      grid_map::Position diggingPoint;
-      planningMap_.getPosition(*iterator, diggingPoint);
-//      ROS_INFO_STREAM("[LocalPlanner]: computing refinement trajectory for point " << diggingPoint);
-      // get the elevation of the point
-      double elevation = excavationMappingPtr_->getElevation(diggingPoint);
-      // if the elevation is not nan compute the trajectory
-      if (!std::isnan(elevation)) {
-        // create the point in 3d
-        Eigen::Vector3d w_P_wd(diggingPoint.x(), diggingPoint.y(), elevation);
-        Trajectory trajectory = this->computeTrajectory(w_P_wd, targetLayer);
-        // print volume
-//        ROS_INFO_STREAM("[LocalPlanner]: area " << trajectory.sweptArea);
-        double objective = this->sweptAreaObjective(trajectory);
-//        ROS_INFO_STREAM("[LocalPlanner]: Objective " << objective);
-        if (objective > maxObjective && trajectory.sweptArea > ignoreScoopArea_) {
-          bestTrajectory = trajectory;
-          maxObjective = objective;
+    bool continueSearching = true;
+    while (continueSearching) {
+      for (grid_map::PolygonIterator iterator(planningMap_,
+                                              refinementZone_); !iterator.isPastEnd(); ++iterator) {
+        // skipping conditions
+        // get index
+        grid_map::Index index(*iterator);
+        if (planningMap_.at("dug_area", index) != 1) {
+          continue;
+        }
+        // get the position of the point
+        grid_map::Position diggingPoint;
+        planningMap_.getPosition(*iterator, diggingPoint);
+        //      ROS_INFO_STREAM("[LocalPlanner]: computing refinement trajectory for point " << diggingPoint);
+        // get the elevation of the point
+        double elevation = excavationMappingPtr_->getElevation(diggingPoint);
+        // if the elevation is not nan compute the trajectory
+        if (!std::isnan(elevation)) {
+          // create the point in 3d
+          Eigen::Vector3d w_P_wd(diggingPoint.x(), diggingPoint.y(), elevation);
+          Trajectory trajectory = this->computeTrajectory(w_P_wd, targetLayer);
+          // print volume
+          //        ROS_INFO_STREAM("[LocalPlanner]: area " << trajectory.sweptArea);
+          double objective = this->sweptAreaObjective(trajectory);
+          //        ROS_INFO_STREAM("[LocalPlanner]: Objective " << objective);
+          if (objective > maxObjective && trajectory.sweptArea > ignoreScoopArea_) {
+            bestTrajectory = trajectory;
+            maxObjective = objective;
+          }
         }
       }
+      bool notFoundTrajectory = (bestTrajectory.positions.size() == 0 || bestTrajectory.sweptArea < 0);
+      double newHeading = previousRefinementHeading_ + refinementAngleIncrement_;
+      if (notFoundTrajectory && newHeading < maxRelHeading_){
+        bestTrajectory = Trajectory();
+      } else {
+        continueSearching = false;
+      }
+      previousRefinementHeading_ = newHeading;
+      // not valid if (bestTrajectory.positions.size() == 0 || bestTrajectory.sweptArea < 0)
     }
     // //  // print best trajectory relative heading nad distance from base
      ROS_INFO_STREAM("[LocalPlanner]: Best trajectory has relative heading " << bestTrajectory.relativeHeading);
@@ -4124,6 +4229,7 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
     this->addPlanningZonesToMap(zoneValues);
 //    zoneThread.detach();
     this->addRefinementZoneToMap(1);
+    previousRefinementHeading_ = minRelHeading_;
   }
 
   void LocalPlanner::setExcavationMaskAtDigZone(){
@@ -4965,7 +5071,7 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
     // we wanna find out the highest relative heading of points inside the poligon whose
     // values in the layer current_excavation_mask of planningMap_ are <= -0.5
     // to find the heading use this->getRelativeHeading(w_Pos)
-    double maxRelHeading = - circularWorkspaceAngle_ / 2;
+    maxRelHeading_ = - circularWorkspaceAngle_ / 2;
     for (grid_map::PolygonIterator iterator(planningMap_, polygon); !iterator.isPastEnd(); ++iterator) {
       const grid_map::Index index(*iterator);
       if (planningMap_.at("current_excavation_mask", index) <= -0.5) {
@@ -4975,16 +5081,16 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
         Eigen::Vector3d w_Pos3d(w_Pos2d(0), w_Pos2d(1), 0);
         double relHeading = this->getRelativeHeading(w_Pos3d);
         // if the relative heading is higher than the current max, update the max
-        if (relHeading > maxRelHeading) {
-          maxRelHeading = relHeading;
+        if (relHeading > maxRelHeading_) {
+          maxRelHeading_ = relHeading;
         }
       }
     }
     // print max heading
-    ROS_INFO_STREAM("[LocalPlanner::getLeftFrontPatchAdaptive] maxHeading: " << maxRelHeading);
+    ROS_INFO_STREAM("[LocalPlanner::getLeftFrontPatchAdaptive] maxHeading: " << maxRelHeading_);
     double epsilonAngle = 0.1;
     // create a dig right zone with startAngle = maxHeading + epsilonAngle
-    std::vector<Eigen::Vector2d> vertices = this->getLeftFrontPatch(maxRelHeading + epsilonAngle);
+    std::vector<Eigen::Vector2d> vertices = this->getLeftFrontPatch(maxRelHeading_ + epsilonAngle);
     return vertices;
   }
 
@@ -4997,7 +5103,7 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
     // we wanna find out the lowest relative heading of points inside the poligon whose
     // values in the layer current_excavation_mask of planningMap_ are <= -0.5
     // to find the heading use this->getRelativeHeading(w_Pos)
-    double minRelHeading = circularWorkspaceAngle_ / 2;
+    minRelHeading_ = circularWorkspaceAngle_ / 2;
     for (grid_map::PolygonIterator iterator(planningMap_, polygon); !iterator.isPastEnd(); ++iterator) {
       const grid_map::Index index(*iterator);
       if (planningMap_.at("current_excavation_mask", index) <= -0.5) {
@@ -5007,16 +5113,16 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
         Eigen::Vector3d w_Pos3d(w_Pos2d(0), w_Pos2d(1), 0);
         double relHeading = this->getRelativeHeading(w_Pos3d);
         // if the relative heading is lower than the current min, update the min
-        if (relHeading < minRelHeading) {
-          minRelHeading = relHeading;
+        if (relHeading < minRelHeading_) {
+          minRelHeading_ += relHeading;
         }
       }
     }
     // print min heading
-    ROS_INFO_STREAM("[LocalPlanner::getRightFrontPatchAdaptive] minHeading: " << minRelHeading);
+    ROS_INFO_STREAM("[LocalPlanner::getRightFrontPatchAdaptive] minHeading: " << minRelHeading_);
     double epsilonAngle = 0.1;
     // create a dig left zone with startAngle = minHeading - epsilonAngle
-    std::vector<Eigen::Vector2d> vertices = this->getRightFrontPatch(minRelHeading - epsilonAngle);
+    std::vector<Eigen::Vector2d> vertices = this->getRightFrontPatch(minRelHeading_ - epsilonAngle);
     return vertices;
   }
 
