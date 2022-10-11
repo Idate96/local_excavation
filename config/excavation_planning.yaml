@@ -3,11 +3,11 @@ local_excavation:
   outer_digging_radius: 7.0 # in meters
   inner_digging_radius: 5.0 # meters
   outer_dumping_radius: 6.5
-  inner_dumping_radius: 3.7
+  inner_dumping_radius: 4.5
   outer_workspace_outer_radius_factor: 1.1
   outer_workspace_inner_radius_factor: 1.0
   outer_workspace_angle_factor: 1.01
-  min_distance_shovel_to_base: 3.5 # in meters
+  min_distance_shovel_to_base: 4.2 # in meters
   min_distance_shovel_to_base_dig: 4.2
   min_distance_shovel_to_base_refined: 4.4
   workspace_angle: 1.9 # radians
@@ -35,7 +35,7 @@ local_excavation:
   working_dir_weight: 0.1
   excavation_area_ratio: 0.1
   x_dump_weight: 0.1
-  y_dump_weight: 0.025
+  y_dump_weight: 0.05
   dump_cells_weight: 1.0
   height_traversable_threshold: 1.0
   bonus_volume: 0.00 # m3

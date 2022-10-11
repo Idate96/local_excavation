@@ -88,9 +88,9 @@ namespace local_excavation {
 
     //  ptr_container[loco_m545::BodyEnum::ENDEFFECTOR]->collision_geometry.get()->getType()
     // create a new box collision geometry
-    Eigen::Vector3d size = Eigen::Vector3d(0.75, 1.5, 0.75);
+    Eigen::Vector3d size = Eigen::Vector3d(0.75, 2.0, 0.75);
     // ec = end effector contact, g = geometry
-    kindr::Position3D ec_P_ecg(-0.325, -0.750, 0.325);
+    kindr::Position3D ec_P_ecg(-0.325, -1.0, 0.325);
     kindr::RotationMatrixD C_gec(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0);
     auto shovelGeo = std::make_shared<collisions_geometry::CollisionGeometryBox>(size(0), size(1), size(2),
                                                                                  ec_P_ecg, C_gec);
@@ -189,6 +189,12 @@ namespace local_excavation {
                                     3.5);
     if (!success) {
       ROS_WARN("[LocalPlanner]: Failed to get min distance shovel to base, falling back to default");
+    }
+    // min_distance_shovel_to_base_dig
+    success = nh_.param<double>("/local_excavation/min_distance_shovel_to_base_dig", minDistanceShovelToBaseDig_,
+                                    3.5);
+    if (!success) {
+      ROS_WARN("[LocalPlanner]: Failed to get min distance shovel to base dig, falling back to default");
     }
     // min_distance_shovel_to_base_refined
     success = nh_.param<double>("/local_excavation/min_distance_shovel_to_base_refined", minDistanceShovelToBaseRefined_,
@@ -499,7 +505,7 @@ namespace local_excavation {
     circularOuterWorkspaceOuterRadius_ = circularWorkspaceOuterRadius_ * circularOuterWorkspaceOuterRadiusFactor_;
     circularOuterWorkspaceInnerRadius_ = circularWorkspaceInnerRadius_ * circularOuterWorkspaceInnerRadiusFactor_;
     circularOuterWorkspaceAngle_ = circularWorkspaceAngle_ * circularOuterWorkspaceAngleFactor_;
-    refinementAngleIncrement_ =  1.8 * effectiveShovelWidthRefinement_ / circularOuterWorkspaceOuterRadius_;
+    refinementAngleIncrement_ =  2.0 * effectiveShovelWidthRefinement_ / circularOuterWorkspaceOuterRadius_;
     previousRefinementHeading_ = -circularOuterWorkspaceAngle_ + 0.05;
     return true;
     //  // load the parameters
@@ -1496,15 +1502,15 @@ namespace local_excavation {
         break;
       }
       // compute distance from the base
-      // double distanceFromBase = (w_P_next - w_P_wba_).norm();
+      double distanceFromBaseNext = (w_P_next.head(2) - w_P_wba_.head(2)).norm();
       // //    ROS_INFO_STREAM("[LocalPlanner]: distance from base " << startDistanceFromBase);
-      // if (distanceFromBase < minDistanceShovelToBase_) {
-      //   if (debug){
-      //     ROS_INFO_STREAM("[LocalPlanner]: distance from base too small, current distance " << distanceFromBase);
-      //   }
-      //   valid = false;
-      //   break;
-      // }
+      if (distanceFromBaseNext < minDistanceShovelToBaseDig_) {
+        if (debug){
+          ROS_INFO_STREAM("[LocalPlanner]: distance from base too small, current distance " << distanceFromBase);
+        }
+        valid = false;
+        break;
+      }
       w_P_wd_current = w_P_next;
       numSteps++;
       //    ROS_INFO_STREAM("[LocalPlanner]: step " << numSteps << " volume " << volume);
@@ -1632,7 +1638,7 @@ namespace local_excavation {
     for (int i = 1; i < numPoints; i++) {
       double angle = std::max(startClosingAngle + (endClosingAngle - startClosingAngle) * (2 * (double) i) / (numPoints - 1), endClosingAngle);
       Eigen::Vector3d w_P_wd = w_P_wd_last + w_P_dba.normalized().head(2) * ((double) i) /(numPoints - 1) * closingRadialTranslation;
-      w_P_wd(2) = w_P_wd_last(2) + 0.3 * std::pow(((double) i /(numPoints - 1) * 2 * closingZTranslation_), 2);
+      w_P_wd(2) = w_P_wd_last(2) + 0.25 * std::pow(((double) i /(numPoints - 1) * 2 * closingZTranslation_), 2);
       closingPoints.push_back(w_P_wd);
       Eigen::Quaterniond R_ws_d = this->get_R_sw(0.0, angle, heading);
       closingOrientations.push_back(R_ws_d);
@@ -1708,6 +1714,9 @@ namespace local_excavation {
     trajectory.workspaceVolume = std::accumulate(collisionFreeStepVolumes.begin(), collisionFreeStepVolumes.end(), 0.0);
     trajectory.startDistanceFromBase = (w_P_wd_off.head(2) - w_P_wba_.head(2)).norm();
     trajectory.endDistanceFromBase = (w_P_wd_last.head(2) - w_P_wba_.head(2)).norm();
+    if (debug){
+      ROS_INFO_STREAM("[LocalPlanner]: trajectory end distance from base " << trajectory.endDistanceFromBase) << " while min distance is " << minDistanceShovelToBaseDig_;";
+    }
     trajectory.relativeHeading = relativeHeading;
     // compute total trajectory length summing the distance between the points of the trajectory
     trajectory.length = 0;
@@ -2479,7 +2488,7 @@ namespace local_excavation {
     Eigen::Quaterniond R_ws_d_last = smoothedOrientations.back();
     double closingRadialTranslation = -0.4;
     double startClosingAngle = targetRefinementAttitudeInner_;
-    double endClosingAngle = targetRefinementAttitudeInner_;
+    double endClosingAngle = targetRefinementAttitude_;
     std::vector<Eigen::Vector3d> closingPoints;
     std::vector<Eigen::Quaterniond> closingOrientations;
     int numPoints = 3;
@@ -3423,10 +3432,10 @@ namespace local_excavation {
       for (int i = 1; i < 5; i++) {
         if (i != digZoneId) {
           bool zoneActive = this->isZoneActive(i, false) && not completedDumpAreas_.at(i - 1);
-         ROS_INFO_STREAM("[LocalPlanner]: Dumping Zone " << i << " is active: " << zoneActive);
+        //  ROS_INFO_STREAM("[LocalPlanner]: Dumping Zone " << i << " is active: " << zoneActive);
           if (zoneActive) {
             double zoneDumpingScore = this->getDumpingScore(i);
-           ROS_INFO_STREAM("[LocalPlanner]: Dumping Zone " << i << " has dumping score: " << zoneDumpingScore);
+          //  ROS_INFO_STREAM("[LocalPlanner]: Dumping Zone " << i << " has dumping score: " << zoneDumpingScore);
             if (zoneDumpingScore < dumpingScore) {
               dumpingScore = zoneDumpingScore;
               dumpZoneId_ = i;
@@ -3827,14 +3836,14 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
     if (minScore < scoreLocalDistance && scoreLocalDistance < maxScore && !std::isnan(scoreLocalDistance)) {
       score += scoreLocalDistance;
     }
-    ROS_INFO_STREAM("[LocalPlanner]: dumping score for zone " << zoneId << " is " << score);
+    // ROS_INFO_STREAM("[LocalPlanner]: dumping score for zone " << zoneId << " is " << score);
     //  print detailed breakdown of the score contribution
-   ROS_INFO_STREAM(
-       "[LocalPlanner]: total score " << score << ", dumping score breakdown for zone " << zoneId << " is "
-                                      << scoreWorkingDir
-                                      << " working dir bias, " << scoreLocalDistance << " local distance, "
-                                      << scoreGlocalDistance << " global distance");
-    ROS_INFO_STREAM("[LocalPlanner]: --------------------------------------------------------------------------");
+  //  ROS_INFO_STREAM(
+  //      "[LocalPlanner]: total score " << score << ", dumping score breakdown for zone " << zoneId << " is "
+  //                                     << scoreWorkingDir
+  //                                     << " working dir bias, " << scoreLocalDistance << " local distance, "
+  //                                     << scoreGlocalDistance << " global distance");
+  //   ROS_INFO_STREAM("[LocalPlanner]: --------------------------------------------------------------------------");
     return score;
   }
 
@@ -4411,10 +4420,10 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
     double shovelHeading = this->getHeading(w_P_ws);
     Eigen::Vector3d zoneCenter = Eigen::Vector3d (zoneCenters_.at(zoneId)(0), zoneCenters_.at(zoneId)(1), 0);
     double zoneCenterHeading = this->getHeading(zoneCenter);
-    // print both headings and the difference
-    ROS_INFO_STREAM("[LocalPlanner]: shovel heading is " << shovelHeading);
-    ROS_INFO_STREAM("[LocalPlanner]: zone center heading is " << zoneCenterHeading);
-    ROS_INFO_STREAM("[LocalPlanner]: shovel heading - zone center heading is " << shovelHeading - zoneCenterHeading);
+    // // print both headings and the difference
+    // ROS_INFO_STREAM("[LocalPlanner]: shovel heading is " << shovelHeading);
+    // ROS_INFO_STREAM("[LocalPlanner]: zone center heading is " << zoneCenterHeading);
+    // ROS_INFO_STREAM("[LocalPlanner]: shovel heading - zone center heading is " << shovelHeading - zoneCenterHeading);
     // print zone center
     // get the distance between the shovel and the zone center
     double distance = std::abs(shovelHeading - zoneCenterHeading);
@@ -4662,7 +4671,7 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
 //    this->updatePlanningMap();
     this->chooseDumpZone(digZoneId_);
 
-    ROS_INFO("[LocalPlanner]: findDumpPoint in zone %d", dumpZoneId_);
+    // ROS_INFO("[LocalPlanner]: findDumpPoint in zone %d", dumpZoneId_);
     geometry_msgs::TransformStamped T_mba;
     // get transform from base to cabin frame
     try {
@@ -4811,7 +4820,7 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
         double xBaseScore = abs(x_base) * xDumpWeight;
         // assuming enough lateral distance
         double yBaseScore = abs(y_base) * yDumpWeight_;
-//              ROS_INFO_STREAM("[LocalPlanner] : findDumpPoint: xBaseScore: " << xBaseScore << " yBaseScore: " << yBaseScore);
+        ROS_INFO_STREAM("[LocalPlanner] : findDumpPoint: xBaseScore: " << xBaseScore << " yBaseScore: " << yBaseScore);
 
         double baseScore = xBaseScore + yBaseScore;
 
