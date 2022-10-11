@@ -78,3 +78,6 @@ local_excavation:
   refine: true
   effective_shovel_width: 0.7
   effective_shovel_width_refinement: 0.7
+  closing_radial_translation: 0.30
+  closing_height_coefficient: 1.0
+  closing_angle_coefficient: 2

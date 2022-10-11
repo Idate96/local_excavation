@@ -481,6 +481,10 @@ class LocalPlanner {
   double digDumpDistanceWeight_;
   double workingDirWeight_;
   double dumpingZoneDistanceWeight_;
+  // digging
+  double closingRadialTranslation_;
+  double closingHeightCoefficient_;
+  double closingAngleCoefficient_;
 
   // current orientation
   Eigen::Vector2d currentOrientation_;
