@@ -488,6 +488,37 @@ namespace local_excavation {
     if (!success) {
       ROS_WARN("[LocalPlanner]: Failed to get effective shovel width refinement, falling back to default");
     }
+    // closing_radial_translation
+    success = nh_.param<double>("/local_excavation/closing_radial_translation", closingRadialTranslation_, 0.0);
+    if (!success) {
+      ROS_WARN("[LocalPlanner]: Failed to get closing radial translation, falling back to default");
+    }
+    // closing_radial_translation_refinement
+    success = nh_.param<double>("/local_excavation/closing_radial_translation_refinement", closingRadialTranslationRefinement_, 0.0);
+    if (!success) {
+      ROS_WARN("[LocalPlanner]: Failed to get closing radial translation refinement, falling back to default");
+    }
+    // closing_height_coefficient
+    success = nh_.param<double>("/local_excavation/closing_height_coefficient", closingHeightCoefficient_, 0.0);
+    if (!success) {
+      ROS_WARN("[LocalPlanner]: Failed to get closing height coefficient, falling back to default");
+    }
+    // closing_height_coefficient_refinement
+    success = nh_.param<double>("/local_excavation/closing_height_coefficient_refinement", closingHeightCoefficientRefinement_, 0.0);
+    if (!success) {
+      ROS_WARN("[LocalPlanner]: Failed to get closing height coefficient refinement, falling back to default");
+    }
+    // closing_angle_coefficient
+    success = nh_.param<double>("/local_excavation/closing_angle_coefficient", closingAngleCoefficient_, 0.0);
+    if (!success) {
+      ROS_WARN("[LocalPlanner]: Failed to get closing angle coefficient, falling back to default");
+    }
+    // closing_angle_coefficient_refinement
+    success = nh_.param<double>("/local_excavation/closing_angle_coefficient_refinement", closingAngleCoefficientRefinement_, 0.0);
+    if (!success) {
+      ROS_WARN("[LocalPlanner]: Failed to get closing angle coefficient refinement, falling back to default");
+    }
+
     // log name
     // default log name: current time dd.mm.yyyy_hh.mm.ss
     auto time = boost::posix_time::second_clock::local_time();
@@ -1161,6 +1192,9 @@ namespace local_excavation {
          (planningMap_.at("excavation_mask", index) == -0.5 && planningMap_.at("planning_zones", index) == 0)) {
         volumeSign = -10;
       }
+      if (planningMap_.at("completed_dig_zone", index) == 1) {
+        volumeSign = 0;
+      }
       // if the value of terrain elevation is nan do not compute the volume
       //      if (std::isnan(terrainElevation)) {
       //        continue;
@@ -1636,9 +1670,9 @@ namespace local_excavation {
     std::vector<Eigen::Quaterniond> closingOrientations;
     int numPoints = 3;
     for (int i = 1; i < numPoints; i++) {
-      double angle = std::max(startClosingAngle + (endClosingAngle - startClosingAngle) * (2 * (double) i) / (numPoints - 1), endClosingAngle);
-      Eigen::Vector3d w_P_wd = w_P_wd_last + w_P_dba.normalized().head(2) * ((double) i) /(numPoints - 1) * closingRadialTranslation;
-      w_P_wd(2) = w_P_wd_last(2) + 0.25 * std::pow(((double) i /(numPoints - 1) * 2 * closingZTranslation_), 2);
+      double angle = std::max(startClosingAngle + (endClosingAngle - startClosingAngle) * (closingAngleCoefficient_ * (double) i) / (numPoints - 1), endClosingAngle);
+      Eigen::Vector3d w_P_wd = w_P_wd_last + w_P_dba.normalized().head(2) * ((double) i) /(numPoints - 1) * closingRadialTranslation_;
+      w_P_wd(2) = w_P_wd_last(2) + closingHeightCoefficient_ * std::pow(((double) i /(numPoints - 1) * closingZTranslation_), 2);
       closingPoints.push_back(w_P_wd);
       Eigen::Quaterniond R_ws_d = this->get_R_sw(0.0, angle, heading);
       closingOrientations.push_back(R_ws_d);
@@ -1662,7 +1696,7 @@ namespace local_excavation {
 //    Eigen::Vector3d w_P_wd4 = w_P_wd3 + closingZTranslation_ * Eigen::Vector3d::UnitZ() + w_P_dba.normalized() * 0.2;
 //    double theta = M_PI / 2 - M_PI / 2;  // last quadrant of the circle
 //    //  Eigen::Vector3d w_P_wd3 =
-//    //      w_P_wd2 +
+//    //      w_P_wd2
 //    Eigen::Quaterniond R_ws_d3 = this->get_R_sw(0, -draggingAngle_ + 0.1, heading);
 //    Eigen::Quaterniond R_ws_d4 = this->get_R_sw(0, -M_PI * 3. / 4, heading);
     //  ROS_INFO_STREAM("[LocalPlanner]: Euler angles 3 " << R_ws_d3.toRotationMatrix().eulerAngles(0, 1, 2).transpose());
@@ -1715,7 +1749,7 @@ namespace local_excavation {
     trajectory.startDistanceFromBase = (w_P_wd_off.head(2) - w_P_wba_.head(2)).norm();
     trajectory.endDistanceFromBase = (w_P_wd_last.head(2) - w_P_wba_.head(2)).norm();
     if (debug){
-      ROS_INFO_STREAM("[LocalPlanner]: trajectory end distance from base " << trajectory.endDistanceFromBase) << " while min distance is " << minDistanceShovelToBaseDig_;";
+      ROS_INFO_STREAM("[LocalPlanner]: trajectory end distance from base " << trajectory.endDistanceFromBase << " while min distance is " << minDistanceShovelToBaseDig_);
     }
     trajectory.relativeHeading = relativeHeading;
     // compute total trajectory length summing the distance between the points of the trajectory
@@ -1806,7 +1840,15 @@ namespace local_excavation {
     double relativeHeading = atan2(ba_P_bad(1), ba_P_bad(0));
     //   ROS_INFO_STREAM("Base heading in map frame: " <<  yaw_b);
     //   ROS_INFO_STREAM("[LocalPlanner]: opt traj relative heading is " << relativeHeading);
-    double heading = -yaw_b - relativeHeading;
+    double baseHeading = rpy_(2);
+    // this cannot be right
+    // print base nad relative heading
+//    ROS_INFO_STREAM("baseHeading: " << baseHeading);
+//    ROS_INFO_STREAM("relativeHeading: " << relativeHeading);
+    if (baseHeading < 0) {
+      baseHeading = M_PI + baseHeading;
+    }
+    double heading = - (baseHeading + relativeHeading);
     //   ROS_INFO_STREAM("[LocalPlanner]: opt traj heading " << heading);
 
     //  ROS_INFO_STREAM("[LocalPlanner]: True boom heading " << shovelYaw);
@@ -2033,7 +2075,21 @@ namespace local_excavation {
     if (digPoints.size() == 0) {
       return Trajectory();
     }
+    // print dig points
+    if (debug) {
+      ROS_INFO_STREAM("[LocalPlanner]: dig points");
+      for (size_t i = 0; i < digPoints.size(); i++) {
+        ROS_INFO_STREAM("[LocalPlanner]: dig point " << digPoints[i].transpose());
+      }
+    }
     this->removeSaddles(digPoints);
+    // print the processed digpoitns 
+    if (debug) {
+      ROS_INFO_STREAM("[LocalPlanner]: processed dig points");
+      for (size_t i = 0; i < digPoints.size(); i++) {
+        ROS_INFO_STREAM("[LocalPlanner]: dig point " << digPoints[i].transpose());
+      }
+    }
     this->getShovelOrientation(digPoints, digOrientations, draggingDirtDistance_, targetDigDirtAttitudeInner_, attitudeAngle, heading);
     // check for collisions
     std::vector<Eigen::Vector3d> collisionFreeDigPoints;
@@ -2486,16 +2542,15 @@ namespace local_excavation {
     Eigen::Vector3d w_P_wd_last = smoothedDigPoints.back();
     // get the orientation of the shovel at the last point
     Eigen::Quaterniond R_ws_d_last = smoothedOrientations.back();
-    double closingRadialTranslation = -0.4;
     double startClosingAngle = targetRefinementAttitudeInner_;
     double endClosingAngle = targetRefinementAttitude_;
     std::vector<Eigen::Vector3d> closingPoints;
     std::vector<Eigen::Quaterniond> closingOrientations;
     int numPoints = 3;
     for (int i = 1; i < numPoints; i++) {
-      double angle = std::max(startClosingAngle + (endClosingAngle - startClosingAngle) * (2 * (double) i) / (numPoints - 1), endClosingAngle);
-      Eigen::Vector3d w_P_wd = w_P_wd_last + w_P_dba.normalized().head(2) * ((double) i) /(numPoints - 1) * closingRadialTranslation;
-      w_P_wd(2) = w_P_wd_last(2) + 0.3 * std::pow(((double) i /(numPoints - 1) * 2 * closingZTranslation_), 2);
+      double angle = std::max(startClosingAngle + (endClosingAngle - startClosingAngle) * ((double) i) / (numPoints - 1), endClosingAngle);
+      Eigen::Vector3d w_P_wd = w_P_wd_last + w_P_dba.normalized().head(2) * ((double) i) /(numPoints - 1) * closingRadialTranslationRefinement_;
+      w_P_wd(2) = w_P_wd_last(2) + closingHeightCoefficientRefinement_ * std::pow(((double) i /(numPoints - 1) * closingZTranslation_), 2);
       closingPoints.push_back(w_P_wd);
       Eigen::Quaterniond R_ws_d = this->get_R_sw(0.0, -angle, heading);
       closingOrientations.push_back(R_ws_d);
@@ -3902,7 +3957,7 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
     // get the pich, roll and yaw using Eigen
     R_mba_q_ = Eigen::Quaterniond(T_mba.transform.rotation.w, T_mba.transform.rotation.x, T_mba.transform.rotation.y,
                          T_mba.transform.rotation.z);  
-    // get the euler angles
+    // get the euler angles, the unique ones 
     rpy_ = R_mba_q_.toRotationMatrix().eulerAngles(0, 1, 2);
   }
 
@@ -3920,11 +3975,11 @@ void LocalPlanner::computeSdf(std::string targetLayer, std::string sdfLayerName)
     for (int i = 0; i < 4; i++) {
       completedDumpAreas_.push_back(0);
     }
-    int numDigAreas = completedDigAreas_.size();
-    completedDigAreas_.clear();
-    for (int i = 0; i < numDigAreas; i++) {
-      completedDigAreas_.push_back(0);
-    }
+    // int numDigAreas = completedDigAreas_.size();
+    // completedDigAreas_.clear();
+    // for (int i = 0; i < numDigAreas; i++) {
+    //   completedDigAreas_.push_back(0);
+    // }
 
     // get vertices for the zones
     std::vector<Eigen::Vector2d> b_PosDigOuter_bd = getOuterDiggingPatchVertices();

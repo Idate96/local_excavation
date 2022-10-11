@@ -7,9 +7,9 @@ local_excavation:
   outer_workspace_outer_radius_factor: 1.1
   outer_workspace_inner_radius_factor: 1.0
   outer_workspace_angle_factor: 1.01
-  min_distance_shovel_to_base: 4.2 # in meters
-  min_distance_shovel_to_base_dig: 4.2
-  min_distance_shovel_to_base_refined: 4.4
+  min_distance_shovel_to_base: 3.8 # in meters
+  min_distance_shovel_to_base_dig: 3.8
+  min_distance_shovel_to_base_refined: 3.8
   workspace_angle: 1.9 # radians
   max_volume: 0.7 # soil volume in m^3
   max_dirt_volume: 0.8
@@ -78,3 +78,9 @@ local_excavation:
   refine: true
   effective_shovel_width: 0.7
   effective_shovel_width_refinement: 0.7
+  closing_radial_translation: 0.30
+  closing_height_coefficient: 1.0
+  closing_angle_coefficient: 3
+  closing_radial_translation_refinement: -0.50
+  closing_height_coefficient_refinement: 0.5
+  closing_angle_coefficient_refinement: 1
