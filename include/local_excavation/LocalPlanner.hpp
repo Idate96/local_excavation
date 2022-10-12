@@ -58,6 +58,7 @@ class Trajectory {
   double workspaceVolume = -10;
   double length = 0;
   double sweptArea = 0; // m^2
+  int startClosingIndex = 0;
   std::vector<double> stepVolumes;
   std::vector<double> otherVolumes;
   std::vector<double> totalVolumes;
