@@ -531,7 +531,31 @@ namespace local_excavation {
     if (!success) {
       ROS_WARN("[LocalPlanner]: Failed to get closing angle coefficient refinement, falling back to default");
     }
-
+    // dig_speed
+    success = nh_.param<double>("/local_excavation/dig_speed", digSpeed_, 0.0);
+    if (!success) {
+      ROS_WARN("[LocalPlanner]: Failed to get dig speed, falling back to default");
+    }
+    // dig_closing_speed
+    success = nh_.param<double>("/local_excavation/dig_closing_speed", digClosingSpeed_, 0.0);
+    if (!success) {
+      ROS_WARN("[LocalPlanner]: Failed to get dig closing speed, falling back to default");
+    }
+    // dig_dirt_speed 
+    success = nh_.param<double>("/local_excavation/dig_dirt_speed", digDirtSpeed_, 0.0);
+    if (!success) {
+      ROS_WARN("[LocalPlanner]: Failed to get dig dirt speed, falling back to default");
+    }
+    // dig_dirt_closing_speed
+    success = nh_.param<double>("/local_excavation/dig_dirt_closing_speed", digDirtClosingSpeed_, 0.0);
+    if (!success) {
+      ROS_WARN("[LocalPlanner]: Failed to get dig dirt closing speed, falling back to default");
+    }
+    // refinement_speed
+    success = nh_.param<double>("/local_excavation/refinement_speed", refinementSpeed_, 0.0);
+    if (!success) {
+      ROS_WARN("[LocalPlanner]: Failed to get refinement speed, falling back to default");
+    }
     // log name
     // default log name: current time dd.mm.yyyy_hh.mm.ss
     auto time = boost::posix_time::second_clock::local_time();
@@ -549,7 +573,7 @@ namespace local_excavation {
     circularOuterWorkspaceOuterRadius_ = circularWorkspaceOuterRadius_ * circularOuterWorkspaceOuterRadiusFactor_;
     circularOuterWorkspaceInnerRadius_ = circularWorkspaceInnerRadius_ * circularOuterWorkspaceInnerRadiusFactor_;
     circularOuterWorkspaceAngle_ = circularWorkspaceAngle_ * circularOuterWorkspaceAngleFactor_;
-    refinementAngleIncrement_ = 2.0 * effectiveShovelWidthRefinement_ / circularOuterWorkspaceOuterRadius_;
+    refinementAngleIncrement_ = 2.2 * effectiveShovelWidthRefinement_ / circularOuterWorkspaceOuterRadius_;
     previousRefinementHeading_ = -circularOuterWorkspaceAngle_ + 0.05;
     return true;
     //  // load the parameters
@@ -1233,6 +1257,12 @@ namespace local_excavation {
           if (std::isnan(lineWorkspaceVolume)) {
             ROS_ERROR("[LocalPlanner]: workspaceVolume is nan");
           }
+        } else if ((digZoneId_ == 1 || digZoneId_ == 2) && (planningMap_.at("planning_zones", index) == (digZoneId_ + 2))){
+          lineWorkspaceVolume += volumeSign * cellVolume;
+          // if workspaceVolume becomes nan raise an error
+          if (std::isnan(lineWorkspaceVolume)) {
+            ROS_ERROR("[LocalPlanner]: workspaceVolume is nan");
+          }
         } else {
           // if the cell is not in the digging zone we do not want to dig here
           lineOtherVolume += volumeSign * cellVolume;
@@ -1774,6 +1804,8 @@ namespace local_excavation {
     //    ROS_INFO_STREAM("[LocalPlanner]: digPointsFused " << digPointsFused[i].transpose());
     //  }
     Trajectory trajectory;
+    trajectory.digSpeed = digSpeed_;
+    trajectory.closingSpeed = digClosingSpeed_;
     trajectory.startClosingIndex = digPointsFused.size() - closingPoints.size() - 1;
     trajectory.positions = digPointsFused;
     trajectory.orientations = digOrientationsFused;
@@ -1901,10 +1933,11 @@ namespace local_excavation {
     // move the initial point along the radial direction of the shovel
     // this allows the shovel to keep the same orientation for a bit even outside of the soil
     // this is convenient in practice because the height map might be imprecise and we might encounter soil before we expect it.
-    Eigen::Vector3d w_P_wd_off = w_P_wd - verticalOffset_ * w_P_dba;
+    Eigen::Vector3d w_P_wd_off = w_P_wd - verticalOffset_ * tan(attitudeAngle) * w_P_dba;
     // apply radialOffset_ in the direction dba
     w_P_wd_off = w_P_wd_off - radialDirtOffset_ * w_P_dba;
     w_P_wd_off(2) = w_P_wd(2) + verticalOffset_;
+
 
     // this takes care of the fact that we have a penetration phase
     //  Eigen::Vector3d w_P_wd_off = w_P_wd - radialOffset_ * w_P_dba;
@@ -2174,9 +2207,16 @@ namespace local_excavation {
     if (smoothedDigPoints.size() < 3) {
       return Trajectory();
     }
+    // compute the distance to base for each smoothed point 
+    // use to obtain the orientation of the shovel
     std::vector<Eigen::Quaterniond> smoothedOrientations;
-    this->getShovelOrientation(smoothedDigPoints, smoothedOrientations, draggingDirtDistance_,
-                               targetDigDirtAttitudeInner_, attitudeAngle, heading);
+    for (size_t i = 0; i < smoothedDigPoints.size(); i++) {
+      double distanceToBaseSmooth = (smoothedDigPoints[i].head(2) - w_P_wba_.head(2)).norm();
+      double pitchSmooth = this->getDigAttitude(distanceToBaseSmooth);
+      smoothedOrientations.push_back(this->get_R_sw(0.0, -pitchSmooth, heading));
+    }
+    // compute the orientation of the shovel
+
     if (debug) {
       // print smoothed points
       ROS_INFO_STREAM("[LocalPlanner]: smoothed dig points");
@@ -2187,8 +2227,8 @@ namespace local_excavation {
     Eigen::Vector3d w_P_wd_last = smoothedDigPoints.back();
     // get the orientation of the shovel at the last point
     Eigen::Quaterniond R_ws_d_last = smoothedOrientations.back();
-    double horizontalClosingOffset = 0.0;
-    double verticalClosingOffset = 0.5;
+    double horizontalClosingOffset = 0.2;
+    double verticalClosingOffset = 0.55;
 //    Eigen::Vector3d w_P_d2d3 = w_P_dba.normalized() * scaling;
 //    // get desired height at the end of the trajectory
 //    grid_map::Position wg_P_wd2(w_P_wd_last(0), w_P_wd_last(1));
@@ -2200,13 +2240,19 @@ namespace local_excavation {
 //    w_P_d2d3(2) = closingOffset(2);
 //    // transfrom to world frame by rotating yaw angle around the z axis
 //    Eigen::AngleAxisd R_wc(heading, Eigen::Vector3d::UnitZ());
+//    Eigen::Vector3d w_P_d2d3_world = R_wc * w_P_d2d3;
+    Eigen::Vector3d w_P_wd2_ = w_P_wd_last;
+    w_P_wd2_(2) += verticalClosingOffset / 2;
+    w_P_wd2_.head(2) += w_P_dba.head(2).normalized() * horizontalClosingOffset / 2;
     Eigen::Vector3d w_P_wd3 = w_P_wd_last;
     w_P_wd3.head(2) += w_P_dba.head(2).normalized() * horizontalClosingOffset;
     w_P_wd3(2) += verticalClosingOffset;
     double theta = M_PI / 2 - M_PI / 2;  // last quadrant of the circle
     //  Eigen::Vector3d w_P_wd3 =
-    //      w_P_wd2 +
+    //      w_P_wd2 
+    Eigen::Quaterniond R_ws_d2 = this->get_R_sw(0, -M_PI * 3 / 4, heading);
     Eigen::Quaterniond R_ws_d3 = this->get_R_sw(0, -M_PI * 3 / 4, heading);
+    Eigen::Quaterniond R_ws_d4 = this->get_R_sw(0, -M_PI * 3 / 4, heading);
     //  ROS_INFO_STREAM("[LocalPlanner]: Euler angles 3 " << R_ws_d3.toRotationMatrix().eulerAngles(0, 1, 2).transpose());
 
     // fuse together the two trajectories
@@ -2222,6 +2268,8 @@ namespace local_excavation {
                                 smoothedOrientations.end());
     //    digPointsFused.push_back(w_P_wd_last);
     //    digOrientationsFused.push_back(R_ws_d_last);
+    digPointsFused.push_back(w_P_wd2_);
+    digOrientationsFused.push_back(R_ws_d2);
     digPointsFused.push_back(w_P_wd3);
     digOrientationsFused.push_back(R_ws_d3);
     // checkdistance from base
@@ -2230,10 +2278,11 @@ namespace local_excavation {
     if (distanceFromBaseLast < minDistanceShovelToBase_) {
       // we add a point to the trajectory to make sure that the robot is not too close to the base
       w_P_wd4.head(2) = w_P_wd3.head(2) + w_P_dba.head(2).normalized();
+      // w_P_wd4 = w_P_wd3;
       w_P_wd4(2) = w_P_wd3(2) + verticalClosingOffset;
       // add them to the list
       digPointsFused.push_back(w_P_wd4);
-      digOrientationsFused.push_back(R_ws_d3);
+      digOrientationsFused.push_back(R_ws_d4);
     }
 
 //    digPointsFused.push_back(w_P_wd4);
@@ -2249,6 +2298,8 @@ namespace local_excavation {
     //    ROS_INFO_STREAM("[LocalPlanner]: digPointsFused " << digPointsFused[i].transpose());
     //  }
     Trajectory trajectory;
+    trajectory.digSpeed = digDirtSpeed_;
+    trajectory.closingSpeed = digDirtClosingSpeed_;
     trajectory.startClosingIndex = digPointsFused.size() - 2 - 1;
     trajectory.positions = digPointsFused;
     trajectory.orientations = digOrientationsFused;
@@ -2434,7 +2485,9 @@ namespace local_excavation {
     double previousLineVolume = 0;
     double previousCellVolume = 0;
     int numStepsOutsideRefinement = 0;
-
+    // sometimes it tries to lift the machine
+    // min height to max double value
+    double minHeight = std::numeric_limits<double>::max();
     while (valid) {
       Eigen::Vector3d w_P_next = w_P_wd_current + stepSize * w_P_dba;
       // distance from basse
@@ -2451,7 +2504,8 @@ namespace local_excavation {
       }
 
       double nextDesiredElevation = planningMap_.at(targetLayer, nextIndex) - refinementDepthBias_;
-      double nextElevation = planningMap_.at("planning_elevation", nextIndex);
+      double nextElevation = std::max(planningMap_.at("planning_elevation", nextIndex), planningMap_.at("desired_elevation", nextIndex));
+      minHeight = std::min(minHeight, nextElevation);
       if (debug) {
         // print value at layer planning_elevation, targetLayer and desired_elevation
         // ROS_INFO_STREAM("[LocalPlanner]: nextDesiredElevation: " << planningMap_.at("desired_elevation", nextIndex));
@@ -2545,7 +2599,7 @@ namespace local_excavation {
     // ROS_INFO_STREAM("[LocalPlanner]: numSteps " << numSteps)
 
     // accumulate volume in the step volumes
-//    ROS_INFO_STREAM("[LocalPlanner]: total area " << area);
+    //    ROS_INFO_STREAM("[LocalPlanner]: total area " << area);
     // reset planning elevation
     if (markRefinedArea) {
       planningMap_["refined_zone"] = planningMap_["planning_refinement"];
@@ -2568,7 +2622,7 @@ namespace local_excavation {
         digPointsToSmooth.push_back(digPoints.at(i));
       }
       smoothedDigPoints = this->smoothZCoordinates(digPointsToSmooth);
-//       // z coordinates of a successive point is bounded by the previous point
+      // z coordinates of a successive point is bounded by the previous point
       for (int i = 0; i < smoothedDigPoints.size(); i++) {
         if (i > 0) {
           smoothedDigPoints.at(i)(2) = std::max(smoothedDigPoints.at(i)(2), smoothedDigPoints.at(i - 1)(2));
@@ -2643,8 +2697,22 @@ namespace local_excavation {
     digPointsFused.insert(digPointsFused.end(), smoothedDigPoints.begin(), smoothedDigPoints.end());
     digOrientationsFused.insert(digOrientationsFused.end(), smoothedOrientations.begin(), smoothedOrientations.end());
     // add closing points
-    digPointsFused.insert(digPointsFused.end(), closingPoints.begin() + 1, closingPoints.end());
-    digOrientationsFused.insert(digOrientationsFused.end(), closingOrientations.begin() + 1, closingOrientations.end());
+    // digPointsFused.insert(digPointsFused.end(), closingPoints.begin() + 1, closingPoints.end());
+    // digOrientationsFused.insert(digOrientationsFused.end(), closingOrientations.begin() + 1, closingOrientations.end());
+    // ensure that all points are equal or more than minHeight and less than minHeight + 0.2
+    for (int i = 1; i < digPointsFused.size(); i++) {
+      // print digpointsFused
+      // ROS_INFO_STREAM("[LocalPlanner]: digPointsFused " << digPointsFused[i].transpose());
+      digPointsFused.at(i)(2) = std::max(digPointsFused.at(i)(2), minHeight);
+      digPointsFused.at(i)(2) = std::min(digPointsFused.at(i)(2), minHeight + 0.2);
+      // print digpointsFused
+      if (debug){
+        ROS_INFO_STREAM("[LocalPlanner]: digPointsFused i " << i << " " << digPointsFused[i].transpose());
+      }
+
+    }
+    // make sure that the norm between two points is at least minDistance else skip the point
+
     if (debug) {
 //      for (size_t i = 0; i < digPointsFused.size(); i++) {
 //        ROS_INFO_STREAM("[LocalPlanner]: digPointsFused " << digPointsFused[i].transpose());
@@ -2657,7 +2725,9 @@ namespace local_excavation {
 //    digPointsFused.push_back(w_P_wd_last_up);
 //    digOrientationsFused.push_back(digOrientationsFused.back());
     Trajectory trajectory;
-    trajectory.startClosingIndex = digPointsFused.size() - closingPoints.size() - 1;
+    trajectory.digSpeed = refinementSpeed_;
+    trajectory.closingSpeed = refinementSpeed_;
+    trajectory.startClosingIndex = digPointsFused.size();
     trajectory.positions = digPointsFused;
     trajectory.orientations = digOrientationsFused;
     // sum elements of collisionFreeTotalVolumes
@@ -3017,7 +3087,7 @@ namespace local_excavation {
           // print volume
           //        ROS_INFO_STREAM("[LocalPlanner]: area " << trajectory.sweptArea);
           double objective = this->sweptAreaObjective(trajectory);
-          ROS_INFO_STREAM("[LocalPlanner]: Objective " << objective);
+          // ROS_INFO_STREAM("[LocalPlanner]: Objective " << objective);
           if (objective > maxObjective && trajectory.sweptArea > ignoreScoopArea_) {
             bestTrajectory = trajectory;
             maxObjective = objective;
@@ -3629,7 +3699,7 @@ namespace local_excavation {
       double dugValue = planningMap_.at("dug_area", index);
       double excavationZone = planningMap_.at("current_excavation_mask", index);
       totalCells++;
-      if (planningMap_.at("current_excavation_mask", index) != 1) {
+      if (planningMap_.at("current_excavation_mask", index) < 1) {
         numCellsToBeDug++;
       }
       if (dugValue == 1 || excavationZone == 2) {
@@ -3647,7 +3717,7 @@ namespace local_excavation {
     } else {
       // number of already dug cells in the zone
       ROS_INFO_STREAM(
-          "[LocalPlanner]: Dump zone " << zoneId << " has dug cell ratio " << (double) numCellsToBeDug / totalCells);
+          "[LocalPlanner]: Dump zone " << zoneId << " has dug cell ratio " << (double) numDugCells / totalCells);
       ROS_INFO_STREAM("[LocalPlanner]: It should be smaller than " << inactiveAreaRatio_);
       active = active && ((double) numDugCells / totalCells) < inactiveAreaRatio_;
     }
@@ -3968,14 +4038,14 @@ namespace local_excavation {
     if (minScore < scoreLocalDistance && scoreLocalDistance < maxScore && !std::isnan(scoreLocalDistance)) {
       score += scoreLocalDistance;
     }
-    // ROS_INFO_STREAM("[LocalPlanner]: dumping score for zone " << zoneId << " is " << score);
+    ROS_INFO_STREAM("[LocalPlanner]: dumping score for zone " << zoneId << " is " << score);
     //  print detailed breakdown of the score contribution
-    //  ROS_INFO_STREAM(
-    //      "[LocalPlanner]: total score " << score << ", dumping score breakdown for zone " << zoneId << " is "
-    //                                     << scoreWorkingDir
-    //                                     << " working dir bias, " << scoreLocalDistance << " local distance, "
-    //                                     << scoreGlocalDistance << " global distance");
-    //   ROS_INFO_STREAM("[LocalPlanner]: --------------------------------------------------------------------------");
+     ROS_INFO_STREAM(
+         "[LocalPlanner]: total score " << score << ", dumping score breakdown for zone " << zoneId << " is "
+                                        << scoreWorkingDir
+                                        << " working dir bias, " << scoreLocalDistance << " local distance, "
+                                        << scoreGlocalDistance << " global distance");
+      ROS_INFO_STREAM("[LocalPlanner]: --------------------------------------------------------------------------");
     return score;
   }
 
@@ -4955,7 +5025,7 @@ namespace local_excavation {
         double xBaseScore = abs(x_base) * xDumpWeight;
         // assuming enough lateral distance
         double yBaseScore = abs(y_base) * yDumpWeight_;
-        ROS_INFO_STREAM("[LocalPlanner] : findDumpPoint: xBaseScore: " << xBaseScore << " yBaseScore: " << yBaseScore);
+        // ROS_INFO_STREAM("[LocalPlanner] : findDumpPoint: xBaseScore: " << xBaseScore << " yBaseScore: " << yBaseScore);
 
         double baseScore = xBaseScore + yBaseScore;
 
@@ -5270,7 +5340,7 @@ namespace local_excavation {
     // we wanna find out the lowest relative heading of points inside the poligon whose
     // values in the layer current_excavation_mask of planningMap_ are <= -0.5
     // to find the heading use this->getRelativeHeading(w_Pos)
-    minRelHeading_ = circularWorkspaceAngle_ / 2;
+    minRelHeading_ = circularWorkspaceAngle_ / 2 + effectiveShovelWidthRefinement_ / 2;
     for (grid_map::PolygonIterator iterator(planningMap_, polygon); !iterator.isPastEnd(); ++iterator) {
       const grid_map::Index index(*iterator);
       if (planningMap_.at("current_excavation_mask", index) <= -0.5) {
@@ -5281,7 +5351,7 @@ namespace local_excavation {
         double relHeading = this->getRelativeHeading(w_Pos3d);
         // if the relative heading is lower than the current min, update the min
         if (relHeading < minRelHeading_) {
-          minRelHeading_ += relHeading;
+          minRelHeading_ = relHeading;
         }
       }
     }
@@ -5369,7 +5439,7 @@ namespace local_excavation {
     // the circle is sampled at 10 points
     int numPoints = 15;
     double startAngle = M_PI / 2;
-    double endAngle = M_PI / 2 + 1. / 3 * M_PI;
+    double endAngle = M_PI / 2 + 0.9 / 3 * M_PI;
     std::vector<Eigen::Vector2d> vertices;
     for (int i = 0; i < numPoints; i++) {
       double angle = startAngle + i * (endAngle - startAngle) / numPoints;
@@ -5417,7 +5487,7 @@ namespace local_excavation {
     // the circle is sampled at 10 points
     int numPoints = 15;
     double startAngle = -M_PI / 2;
-    double endAngle = -M_PI / 2 - 1. / 3 * M_PI;
+    double endAngle = -M_PI / 2 - 0.9 / 3 * M_PI;
     std::vector<Eigen::Vector2d> vertices;
     for (int i = 0; i < numPoints; i++) {
       double angle = startAngle + i * (endAngle - startAngle) / numPoints;

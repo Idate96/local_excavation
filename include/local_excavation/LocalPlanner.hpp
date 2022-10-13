@@ -62,6 +62,8 @@ class Trajectory {
   std::vector<double> stepVolumes;
   std::vector<double> otherVolumes;
   std::vector<double> totalVolumes;
+  double digSpeed = 0;
+  double closingSpeed = 0;
 };
 
 // DigArea data structure for logging
@@ -177,7 +179,7 @@ class LocalPlanner {
   void sdfDumpingAreas();
   bool isLateralFrontZoneComplete(int zoneId);
   std::vector<int> completedDumpAreas_ = {0, 0, 0, 0};
-  std::vector<int> completedDigAreas_ = {1, 0, 0, 0}; // last area is refinement area
+  std::vector<int> completedDigAreas_ = {0, 0, 0, 0}; // last area is refinement area
   void completeDigArea(int zoneId);
   bool isRefinementComplete() { return completedDigAreas_.at(3); };
   double missingCellsAreaRatio_ = 0;
@@ -464,10 +466,15 @@ class LocalPlanner {
   double minDistanceCollisionRefinement_;
   double targetDigAttitude_;
   double targetDigAttitudeInner_;
+  double digSpeed_;
+  double digClosingSpeed_;
   double targetDigDirtAttitude_;
   double targetDigDirtAttitudeInner_;
+  double digDirtSpeed_;
+  double digDirtClosingSpeed_;
   double targetRefinementAttitude_;
   double targetRefinementAttitudeInner_;
+  double refinementSpeed_;
   // refinement
   double previousRefinementHeading_;
   double refinementAngleIncrement_;

@@ -3,7 +3,7 @@ local_excavation:
   outer_digging_radius: 7.0 # in meters
   inner_digging_radius: 5.0 # meters
   outer_dumping_radius: 6.5
-  inner_dumping_radius: 4.5
+  inner_dumping_radius: 4.0
   outer_workspace_outer_radius_factor: 1.1
   outer_workspace_inner_radius_factor: 1.0
   outer_workspace_angle_factor: 1.01
@@ -20,7 +20,7 @@ local_excavation:
   heading_weight_refinement: -0.2
   dump_height: 1.0 # in meters
   volume_dirt_threshold: 3.0
-  height_dirt_threshold: 0.2
+  height_dirt_threshold: 0.35
   height_dump_threshold: 2.0
   volume_threshold: 0.08 # in m^3, parameter that controls when the workspace is done
   height_threshold: 0.10 # in meters, parameter that controls when a cell not considered done
@@ -37,7 +37,7 @@ local_excavation:
   x_dump_weight: 0.1
   y_dump_weight: 0.05
   dump_cells_weight: 1.0
-  height_traversable_threshold: 1.0
+  height_traversable_threshold: 1.5
   bonus_volume: 0.00 # m3
   height_dig_area_threshold: 0.1
   volume_dirt_weight: -0.3
@@ -48,15 +48,15 @@ local_excavation:
   max_dig_dirt_depth: 0.7
   dragging_distance: 1.5
   dragging_dirt_distance: 0.1
-  dragging_angle: 1.2
+  dragging_angle: 1.7
   refinement_angle: 0.8
   closing_z_translation: 1.1
   min_distance_collision: 1.0
   min_distance_collision_refinement: 1.0
   target_dig_attitude: 0.52
   target_dig_attitude_inner: 1.1
-  target_dig_dirt_attitude: 1.0
-  target_dig_dirt_attitude_inner: 1.4
+  target_dig_dirt_attitude: 0.8
+  target_dig_dirt_attitude_inner: 1.7
   target_refinement_attitude: 0.52
   target_refinement_attitude_inner: 1.2
   target_height_diff_threshold: 0.3
@@ -77,10 +77,15 @@ local_excavation:
   dig_zone_teeth_number: 1
   refine: true
   effective_shovel_width: 0.7
-  effective_shovel_width_refinement: 0.7
+  effective_shovel_width_refinement: 0.75
   closing_radial_translation: 0.30
   closing_height_coefficient: 1.0
   closing_angle_coefficient: 3
   closing_radial_translation_refinement: -0.50
   closing_height_coefficient_refinement: 0.5
   closing_angle_coefficient_refinement: 1
+  dig_speed: 0.3
+  dig_closing_speed: 0.2
+  dig_dirt_speed: 0.3
+  dig_dirt_closing_speed: 0.10
+  refinement_speed: 0.4
