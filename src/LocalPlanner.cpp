@@ -3881,6 +3881,7 @@ namespace local_excavation {
 
     double phi =
         2 * asin(circularWorkspaceInnerRadius_ / circularWorkspaceOuterRadius_ * sin(circularWorkspaceAngle_ / 2));
+    // current phi // TODO
     for (grid_map::GridMapIterator iterator(planningMap_); !iterator.isPastEnd(); ++iterator) {
       // get the position of the point
       grid_map::Index index(*iterator);
@@ -3890,9 +3891,10 @@ namespace local_excavation {
       Eigen::Vector3d p_mp = Eigen::Vector3d(position.x(), position.y(), 0.0);
       // tranform position from map frame to waypoint frame
       Eigen::Vector3d w_position_wp = q_mw.inverse() * (p_mp - t_mw);
+      // TODO fix this
       if ((w_position_wp.x() > circularWorkspaceOuterRadius_ * sin(phi / 2) ||
            (w_position_wp.x() > -circularWorkspaceOuterRadius_ * cos(M_PI / 6))) &&
-          w_position_wp.norm() > dumpingZoneOuterRadius_
+          w_position_wp.norm() > dumpingZoneOuterRadius_ * 0.95
           && planningMap_.at("current_excavation_mask", index) == 1) {
         planningMap_.at("current_excavation_mask", index) = 0;
       }
