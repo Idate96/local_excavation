@@ -2395,8 +2395,7 @@ namespace local_excavation {
     //   ROS_INFO_STREAM("[LocalPlanner]: digging point wrt base in base frame: " << ba_P_bad.transpose());
     double relativeHeading = atan2(ba_P_bad(1), ba_P_bad(0));
 //    ROS_INFO_STREAM("[LocalPlanner]: relative heading: " << relativeHeading);
-    if (relativeHeading - previousRefinementHeading_ > refinementAngleIncrement_ ||
-        relativeHeading - previousRefinementHeading_ < -refinementAngleIncrement_) {
+    if (relativeHeading - previousRefinementHeading_ > refinementAngleIncrement_) {
       return Trajectory();
     }
     double baseHeading = rpy_(2);
