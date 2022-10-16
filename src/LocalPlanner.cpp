@@ -896,6 +896,11 @@ namespace local_excavation {
   void LocalPlanner::logScoop(Trajectory &traj, double duration, double scoopVolume) {
     // ROS_INFO_STREAM("[LocalPlanner]: Logging scoop");
     // get the scoop volume
+    // if scoop volume is nan raise a warning and set it to 0 
+    if (std::isnan(scoopVolume)) {
+      ROS_WARN_STREAM("[LocalPlanner]: Scoop volume is nan");
+      scoopVolume = 0;
+    }
     double volume = scoopVolume;
     double area = traj.sweptArea;
     double workspaceVolume = traj.workspaceVolume;
@@ -973,6 +978,10 @@ namespace local_excavation {
         double elevation = planningMap_.at("elevation", index);
         double originaElevation = planningMap_.at("predig_elevation", index);
         double desiredElevation = planningMap_.at(digZone.targetLayer, index);
+        // if any of the above is nan, skip the cell
+        if (std::isnan(elevation) || std::isnan(originaElevation) || std::isnan(desiredElevation)) {
+          continue;
+        }
 //          ROS_INFO_STREAM("[LocalPlanner]: desired elevation " << desiredElevation << " elevation " << elevation);
         double heightDifference = std::max(0.0, elevation - desiredElevation);
         rmsPrecision_ += std::pow(heightDifference, 2);
@@ -2711,9 +2720,9 @@ namespace local_excavation {
       digPointsFused.at(i)(2) = std::max(digPointsFused.at(i)(2), minHeight);
       digPointsFused.at(i)(2) = std::min(digPointsFused.at(i)(2), minHeight + 0.2);
       // print digpointsFused
-      if (debug){
-        ROS_INFO_STREAM("[LocalPlanner]: digPointsFused i " << i << " " << digPointsFused[i].transpose());
-      }
+      // if (debug){
+      //   ROS_INFO_STREAM("[LocalPlanner]: digPointsFused i " << i << " " << digPointsFused[i].transpose());
+      // }
 
     }
     // make sure that the norm between two points is at least minDistance else skip the point
@@ -3100,14 +3109,14 @@ namespace local_excavation {
         }
       }
       bool notFoundTrajectory = (bestTrajectory.positions.size() == 0 || bestTrajectory.sweptArea < 0);
-      double newHeading = previousRefinementHeading_ + refinementAngleIncrement_;
-      ROS_INFO_STREAM("[LocalPlanner]: New refinement heading " << newHeading);
-      if (notFoundTrajectory && newHeading < maxRelHeading_) {
+      previousRefinementHeading_ = refHeading;
+      refHeading += refinementAngleIncrement_;
+      // ROS_INFO_STREAM("[LocalPlanner]: New refinement heading " << refHeading);
+      if (notFoundTrajectory && refHeading < maxRelHeading_) {
         bestTrajectory = Trajectory();
       } else {
         continueSearching = false;
       }
-      previousRefinementHeading_ = newHeading;
       // not valid if (bestTrajectory.positions.size() == 0 || bestTrajectory.sweptArea < 0)
     }
     // //  // print best trajectory relative heading nad distance from base
@@ -4144,11 +4153,11 @@ namespace local_excavation {
     for (int i = 0; i < 4; i++) {
       completedDumpAreas_.push_back(0);
     }
-    int numDigAreas = completedDigAreas_.size();
-    completedDigAreas_.clear();
-    for (int i = 0; i < numDigAreas; i++) {
-      completedDigAreas_.push_back(0);
-    }
+    // int numDigAreas = completedDigAreas_.size();
+    // completedDigAreas_.clear();
+    // for (int i = 0; i < numDigAreas; i++) {
+    //   completedDigAreas_.push_back(0);
+    // }
 
     // get vertices for the zones
     std::vector<Eigen::Vector2d> b_PosDigOuter_bd = getOuterDiggingPatchVertices();
