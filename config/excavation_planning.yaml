@@ -19,9 +19,9 @@ local_excavation:
   heading_weight: 0.08
   heading_weight_refinement: -0.2
   dump_height: 1.0 # in meters
-  volume_dirt_threshold: 3.0
+  volume_dirt_threshold: 10.0
   height_dirt_threshold: 0.35
-  height_dump_threshold: 2.0
+  height_dump_threshold: 3.0
   volume_threshold: 0.08 # in m^3, parameter that controls when the workspace is done
   height_threshold: 0.10 # in meters, parameter that controls when a cell not considered done
   missing_cells_threshold: 0.10 # fraction, parameter that controls when the workspace is done
@@ -89,3 +89,4 @@ local_excavation:
   dig_dirt_speed: 0.3
   dig_dirt_closing_speed: 0.10
   refinement_speed: 0.4
+  planning_zone_back_angle: 0.94

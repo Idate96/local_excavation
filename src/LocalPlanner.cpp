@@ -556,6 +556,11 @@ namespace local_excavation {
     if (!success) {
       ROS_WARN("[LocalPlanner]: Failed to get refinement speed, falling back to default");
     }
+    // planningZoneBackAngle_
+    success = nh_.param<double>("/local_excavation/planning_zone_back_angle", planningZoneBackAngle_, 0.0);
+    if (!success) {
+      ROS_WARN("[LocalPlanner]: Failed to get planning zone back angle, falling back to default");
+    }
     // log name
     // default log name: current time dd.mm.yyyy_hh.mm.ss
     auto time = boost::posix_time::second_clock::local_time();
@@ -3891,10 +3896,24 @@ namespace local_excavation {
       Eigen::Vector3d p_mp = Eigen::Vector3d(position.x(), position.y(), 0.0);
       // tranform position from map frame to waypoint frame
       Eigen::Vector3d w_position_wp = q_mw.inverse() * (p_mp - t_mw);
-      // TODO fix this
-      if ((w_position_wp.x() > circularWorkspaceOuterRadius_ * sin(phi / 2) ||
-           (w_position_wp.x() > -circularWorkspaceOuterRadius_ * cos(M_PI / 6))) &&
-          w_position_wp.norm() > dumpingZoneOuterRadius_ * 0.95
+      double relHeading = this->getRelativeHeading(w_position_wp);
+      bool insideDigWorkspaceHeading = (relHeading > (minRelHeading_ - refinementAngleIncrement_) && relHeading < (maxRelHeading_ + refinementAngleIncrement_));
+      bool outOfReach;
+      if (insideDigWorkspaceHeading){
+        outOfReach = (w_position_wp.norm() > circularWorkspaceInnerRadius_);
+      } else {
+        outOfReach = (w_position_wp.norm() > dumpingZoneOuterRadius_);
+      }
+
+      bool inFrontDumpArea = w_position_wp.x() > -dumpingZoneOuterRadius_ * cos(planningZoneBackAngle_);
+
+//      if ((w_position_wp.x() > circularWorkspaceOuterRadius_ * sin(phi / 2) ||
+//           (w_position_wp.x() > -circularWorkspaceOuterRadius_ * cos(M_PI / 6))) &&
+//          w_position_wp.norm() > dumpingZoneOuterRadius_ * 0.95
+//          && planningMap_.at("current_excavation_mask", index) == 1) {
+//        planningMap_.at("current_excavation_mask", index) = 0;
+//      }
+      if (outOfReach && inFrontDumpArea
           && planningMap_.at("current_excavation_mask", index) == 1) {
         planningMap_.at("current_excavation_mask", index) = 0;
       }
@@ -5441,7 +5460,7 @@ namespace local_excavation {
     // the circle is sampled at 10 points
     int numPoints = 15;
     double startAngle = M_PI / 2;
-    double endAngle = M_PI / 2 + 0.9 / 3 * M_PI;
+    double endAngle = M_PI / 2 + planningZoneBackAngle_;
     std::vector<Eigen::Vector2d> vertices;
     for (int i = 0; i < numPoints; i++) {
       double angle = startAngle + i * (endAngle - startAngle) / numPoints;
@@ -5489,7 +5508,7 @@ namespace local_excavation {
     // the circle is sampled at 10 points
     int numPoints = 15;
     double startAngle = -M_PI / 2;
-    double endAngle = -M_PI / 2 - 0.9 / 3 * M_PI;
+    double endAngle = -M_PI / 2 - planningZoneBackAngle_;
     std::vector<Eigen::Vector2d> vertices;
     for (int i = 0; i < numPoints; i++) {
       double angle = startAngle + i * (endAngle - startAngle) / numPoints;

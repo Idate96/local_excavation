@@ -547,6 +547,7 @@ class LocalPlanner {
   double circularOuterWorkspaceAngleFactor_;
   double dumpingZoneOuterRadius_;
   double dumpingZoneInnerRadius_;
+  double planningZoneBackAngle_;
   double minDistanceShovelToBase_;
   double minDistanceShovelToBaseDig_;
   double minDistanceShovelToBaseRefined_;
