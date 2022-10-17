@@ -12,7 +12,7 @@ local_excavation:
   min_distance_shovel_to_base_refined: 3.8
   workspace_angle: 1.9 # radians
   max_volume: 0.7 # soil volume in m^3
-  max_dirt_volume: 0.8
+  max_dirt_volume: 0.7
   volume_weight: 1
   swept_area_weight: 1
   distance_weight: 0.2

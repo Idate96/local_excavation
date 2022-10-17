@@ -2403,8 +2403,9 @@ namespace local_excavation {
     // relative heading
     //   ROS_INFO_STREAM("[LocalPlanner]: digging point wrt base in base frame: " << ba_P_bad.transpose());
     double relativeHeading = atan2(ba_P_bad(1), ba_P_bad(0));
-//    ROS_INFO_STREAM("[LocalPlanner]: relative heading: " << relativeHeading);
-    if (relativeHeading - previousRefinementHeading_ > refinementAngleIncrement_) {
+    // check only headings between previousRefinementHeading and previousRefinementHeading + refinementAngleIncrement
+    // if the heading is not in the range, we return an empty trajectory
+    if (relativeHeading < previousRefinementHeading_ || relativeHeading > previousRefinementHeading_ + refinementAngleIncrement_) {
       return Trajectory();
     }
     double baseHeading = rpy_(2);
