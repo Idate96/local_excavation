@@ -2,7 +2,7 @@ local_excavation:
   height_precision: 0.05 # meters
   outer_digging_radius: 7.0 # in meters
   inner_digging_radius: 5.0 # meters
-  outer_dumping_radius: 6.5
+  outer_dumping_radius: 6.8
   inner_dumping_radius: 4.0
   outer_workspace_outer_radius_factor: 1.1
   outer_workspace_inner_radius_factor: 1.0

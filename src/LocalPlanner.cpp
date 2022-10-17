@@ -648,7 +648,7 @@ namespace local_excavation {
     // print footprint (eigen::vector2d)
     std::vector<Eigen::Vector2d> footprintPts;
     for (auto waypointIdx = currentWorkspaceIndex_ + 1; waypointIdx < globalWorkspace_.size(); waypointIdx++) {
-      // ROS_INFO_STREAM("[LocalPlanner]: Set excavation mask at waypoint " << waypointIdx);
+       ROS_INFO_STREAM("[LocalPlanner]: Set excavation mask at waypoint " << waypointIdx);
       // extract x, y and yaw from the pose
       geometry_msgs::Pose nextWaypoint;
       try {
@@ -1339,13 +1339,19 @@ namespace local_excavation {
       // if distance is smaller than circularWorkspaceInnerRadius_ set digAttitude to targetDigAttitudeInner_
       digAttitude = std::max(std::min(digAttitude, targetDigAttitudeInner_), targetDigAttitude_);
     } else if (digZoneId_ == 1 || digZoneId_ == 2) {
-      // use targetDigDirtAttitude and targetDigDirtAttitudeInner_
-      digAttitude = targetDigDirtAttitudeInner_ + (targetDigDirtAttitude_ - targetDigDirtAttitudeInner_) /
-                                                  (dumpingZoneOuterRadius_ - dumpingZoneInnerRadius_) *
-                                                  (distanceFromBase - dumpingZoneInnerRadius_);
-      // if distance is bigger than dumpingZoneOuterRadius_ set digAttitude to targetDigAttitude_
-      // if distance is smaller than dumpingZoneInnerRadius_ set digAttitude to targetDigAttitudeInner_
-      digAttitude = std::max(std::min(digAttitude, targetDigDirtAttitudeInner_), targetDigDirtAttitude_);
+      double middleDistance = (circularWorkspaceOuterRadius_ + circularWorkspaceInnerRadius_) / 2;
+      // if distance is bigger than middle distance set digAttitude to targetDigDirtAttitude
+      if (distanceFromBase > middleDistance) {
+        digAttitude = targetDigDirtAttitude_;
+      } else {
+        // interpolate between targetDigAttitude_ when distance from base is circularWorkspaceOuterRadius_ and
+        // targetDigAttitudeInner_ when distance from base is circularWorkspaceInnerRadius_
+        digAttitude = targetDigAttitudeInner_ + (targetDigAttitude_ - targetDigAttitudeInner_) /
+                                                (middleDistance - circularWorkspaceInnerRadius_) *
+                                                (distanceFromBase - circularWorkspaceInnerRadius_);
+        // if distance is smaller than circularWorkspaceInnerRadius_ set digAttitude to targetDigAttitudeInner_
+        digAttitude = std::max(digAttitude, targetDigAttitudeInner_);
+      }
     } else if (digZoneId_ == 3) {
       // use targetRefinementAttitude and targetRefinementAttitudeInner_
       digAttitude = targetRefinementAttitudeInner_ + (targetRefinementAttitude_ - targetRefinementAttitudeInner_) /
@@ -3895,7 +3901,7 @@ namespace local_excavation {
       Eigen::Vector3d p_mp = Eigen::Vector3d(position.x(), position.y(), 0.0);
       // tranform position from map frame to waypoint frame
       Eigen::Vector3d w_position_wp = q_mw.inverse() * (p_mp - t_mw);
-      double relHeading = this->getRelativeHeading(w_position_wp);
+      double relHeading = atan2(w_position_wp.y(), w_position_wp.x());
       bool insideDigWorkspaceHeading = (relHeading > (minRelHeading_ - refinementAngleIncrement_) && relHeading < (maxRelHeading_ + refinementAngleIncrement_));
       bool outOfReach;
       if (insideDigWorkspaceHeading){
@@ -5454,27 +5460,36 @@ namespace local_excavation {
   }
 
   std::vector<Eigen::Vector2d> LocalPlanner::getLeftBackPatch() {
+    double baseMinYDistance = 4;
     // the dumping patch is approximated by a semicircle with radius dumpingOuterRadius_;
     // that spans from the angle 1/2 pi to 4/5 pi
     // the circle is sampled at 10 points
     int numPoints = 15;
     double startAngle = M_PI / 2;
-    double endAngle = M_PI / 2 + planningZoneBackAngle_;
+//    double endAngle = M_PI / 2 + planningZoneBackAngle_;
+    double endAngle = 5./6 * M_PI;
     std::vector<Eigen::Vector2d> vertices;
     for (int i = 0; i < numPoints; i++) {
       double angle = startAngle + i * (endAngle - startAngle) / numPoints;
       Eigen::Vector2d vertex(dumpingZoneOuterRadius_ * cos(angle), dumpingZoneOuterRadius_
                                                                    * sin(angle));
       vertices.push_back(vertex);
+      // if the abs value of y in base frame is less then 4 break
+      double y = dumpingZoneOuterRadius_ * sin(angle);
+      if (abs(y) < dumpingZoneInnerRadius_) {
+        break;
+      }
     }
-    // add vertices belonging to another arc with radius dumpingInnerRadius_
-    // add them in the opposite order
-    for (int i = numPoints - 1; i >= 0; i--) {
-      double angle = startAngle + i * (endAngle - startAngle) / numPoints;
-      Eigen::Vector2d vertex(dumpingZoneInnerRadius_ * cos(angle), dumpingZoneInnerRadius_ * 1.1
-                                                                   * sin(angle));
-      vertices.push_back(vertex);
-    }
+    Eigen::Vector2d vertex(0.0, dumpingZoneInnerRadius_);
+    vertices.push_back(vertex);
+//    // add vertices belonging to another arc with radius dumpingInnerRadius_
+//    // add them in the opposite order
+//    for (int i = numPoints - 1; i >= 0; i--) {
+//      double angle = startAngle + i * (endAngle - startAngle) / numPoints;
+//      Eigen::Vector2d vertex(dumpingZoneInnerRadius_ * cos(angle), dumpingZoneInnerRadius_ * 1.1
+//                                                                   * sin(angle));
+//      vertices.push_back(vertex);
+//    }
     return vertices;
   }
 
@@ -5507,22 +5522,28 @@ namespace local_excavation {
     // the circle is sampled at 10 points
     int numPoints = 15;
     double startAngle = -M_PI / 2;
-    double endAngle = -M_PI / 2 - planningZoneBackAngle_;
+    double endAngle = - 5./6 * M_PI;
     std::vector<Eigen::Vector2d> vertices;
     for (int i = 0; i < numPoints; i++) {
       double angle = startAngle + i * (endAngle - startAngle) / numPoints;
       Eigen::Vector2d vertex(dumpingZoneOuterRadius_ * cos(angle), dumpingZoneOuterRadius_
                                                                    * sin(angle));
       vertices.push_back(vertex);
+      double y = dumpingZoneOuterRadius_ * sin(angle);
+      if (abs(y) < dumpingZoneInnerRadius_) {
+        break;
+      }
     }
+    Eigen::Vector2d vertex(0.0, -dumpingZoneInnerRadius_);
+    vertices.push_back(vertex);
     // add vertices belonging to another arc with radius dumpingInnerRadius_
     // add them in the opposite order
-    for (int i = numPoints - 1; i >= 0; i--) {
-      double angle = startAngle + i * (endAngle - startAngle) / numPoints;
-      Eigen::Vector2d vertex(dumpingZoneInnerRadius_ * cos(angle), dumpingZoneInnerRadius_ * 1.1
-                                                                   * sin(angle));
-      vertices.push_back(vertex);
-    }
+//    for (int i = numPoints - 1; i >= 0; i--) {
+//      double angle = startAngle + i * (endAngle - startAngle) / numPoints;
+//      Eigen::Vector2d vertex(dumpingZoneInnerRadius_ * cos(angle), dumpingZoneInnerRadius_ * 1.1
+//                                                                   * sin(angle));
+//      vertices.push_back(vertex);
+//    }
     return vertices;
   }
 
