@@ -12,7 +12,7 @@ local_excavation:
   min_distance_shovel_to_base_refined: 3.8
   workspace_angle: 1.9 # radians
   max_volume: 0.7 # soil volume in m^3
-  max_dirt_volume: 0.8
+  max_dirt_volume: 0.6
   volume_weight: 1
   swept_area_weight: 1
   distance_weight: 0.2
@@ -65,7 +65,7 @@ local_excavation:
   low_volume_scoop_attempts: 3
   footprint_inflation: 1.0
   depth_bias: 0.0
-  refinement_depth_bias: 0.03
+  refinement_depth_bias: 0.02
   min_elevation_variance: 0.000001
   max_elevation_variance: 0.001
   mark_dug_previous_waypoints: true

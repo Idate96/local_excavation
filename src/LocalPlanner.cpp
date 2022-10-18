@@ -2164,12 +2164,7 @@ namespace local_excavation {
     }
     this->removeSaddles(digPoints);
     // print the processed digpoitns 
-    if (debug) {
-      ROS_INFO_STREAM("[LocalPlanner]: processed dig points");
-      for (size_t i = 0; i < digPoints.size(); i++) {
-        ROS_INFO_STREAM("[LocalPlanner]: dig point " << digPoints[i].transpose());
-      }
-    }
+
     this->getShovelOrientation(digPoints, digOrientations, draggingDirtDistance_, targetDigDirtAttitudeInner_,
                                attitudeAngle, heading);
     // check for collisions
@@ -2286,15 +2281,15 @@ namespace local_excavation {
     // checkdistance from base
     double distanceFromBaseLast = (w_P_wd_last.head(2) - w_P_wba.head(2)).norm();
     Eigen::Vector3d w_P_wd4 = Eigen::Vector3d::Zero();
-    if (distanceFromBaseLast < minDistanceShovelToBase_) {
-      // we add a point to the trajectory to make sure that the robot is not too close to the base
-      w_P_wd4.head(2) = w_P_wd3.head(2) + w_P_dba.head(2).normalized();
-      // w_P_wd4 = w_P_wd3;
-      w_P_wd4(2) = w_P_wd3(2) + verticalClosingOffset;
-      // add them to the list
-      digPointsFused.push_back(w_P_wd4);
-      digOrientationsFused.push_back(R_ws_d4);
-    }
+//    if (distanceFromBaseLast < minDistanceShovelToBase_) {
+//      // we add a point to the trajectory to make sure that the robot is not too close to the base
+//      w_P_wd4.head(2) = w_P_wd3.head(2) + w_P_dba.head(2).normalized();
+//      // w_P_wd4 = w_P_wd3;
+//      w_P_wd4(2) = w_P_wd3(2) + verticalClosingOffset;
+//      // add them to the list
+//      digPointsFused.push_back(w_P_wd4);
+//      digOrientationsFused.push_back(R_ws_d4);
+//    }
 
 //    digPointsFused.push_back(w_P_wd4);
 //    digOrientationsFused.push_back(R_ws_d4);
@@ -3902,7 +3897,7 @@ namespace local_excavation {
       // tranform position from map frame to waypoint frame
       Eigen::Vector3d w_position_wp = q_mw.inverse() * (p_mp - t_mw);
       double relHeading = atan2(w_position_wp.y(), w_position_wp.x());
-      bool insideDigWorkspaceHeading = (relHeading > (minRelHeading_ - refinementAngleIncrement_) && relHeading < (maxRelHeading_ + refinementAngleIncrement_));
+      bool insideDigWorkspaceHeading = (relHeading > minRelHeading_ && relHeading < maxRelHeading_);
       bool outOfReach;
       if (insideDigWorkspaceHeading){
         outOfReach = (w_position_wp.norm() > circularWorkspaceInnerRadius_);
