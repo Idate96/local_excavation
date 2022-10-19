@@ -179,7 +179,7 @@ class LocalPlanner {
   void sdfDumpingAreas();
   bool isLateralFrontZoneComplete(int zoneId);
   std::vector<int> completedDumpAreas_ = {0, 0, 0, 0};
-  std::vector<int> completedDigAreas_ = {1, 0, 1, 1}; // last area is refinement area
+  std::vector<int> completedDigAreas_ = {0, 0, 0, 0}; // last area is refinement area
   void completeDigArea(int zoneId);
   bool isRefinementComplete() { return completedDigAreas_.at(3); };
   double missingCellsAreaRatio_ = 0;
@@ -547,6 +547,7 @@ class LocalPlanner {
   double circularOuterWorkspaceAngleFactor_;
   double dumpingZoneOuterRadius_;
   double dumpingZoneInnerRadius_;
+  double frontDumpingZoneInnerRadius_;
   double planningZoneBackAngle_;
   double minDistanceShovelToBase_;
   double minDistanceShovelToBaseDig_;

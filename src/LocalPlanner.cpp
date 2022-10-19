@@ -184,6 +184,11 @@ namespace local_excavation {
     if (!success) {
       ROS_WARN("[LocalPlanner]: Failed to get inner dumping radius, falling back to default");
     }
+    // front_dumping_zone_inner_radius 
+        success = nh_.param<double>("/local_excavation/front_inner_dumping_radius", frontDumpingZoneInnerRadius_, 4.5);
+    if (!success) {
+      ROS_WARN("[LocalPlanner]: Failed to get inner dumping radius, falling back to default");
+    }
     success = nh_.param<double>("/local_excavation/outer_dumping_radius", dumpingZoneOuterRadius_, 8);
     if (!success) {
       ROS_WARN("[LocalPlanner]: Failed to get outer dumping radius, falling back to default");
@@ -1356,7 +1361,7 @@ namespace local_excavation {
         // interpolate between targetDigAttitude_ when distance from base is circularWorkspaceOuterRadius_ and
         // targetDigAttitudeInner_ when distance from base is circularWorkspaceInnerRadius_
         digAttitude = targetDigAttitudeInner_ + (targetDigAttitude_ - targetDigAttitudeInner_) /
-                                                (middleDistance - circularWorkspaceInnerRadius_) *
+                                                (circularWorkspaceOuterRadius_ - circularWorkspaceInnerRadius_) *
                                                 (distanceFromBase - circularWorkspaceInnerRadius_);
         // if distance is smaller than circularWorkspaceInnerRadius_ set digAttitude to targetDigAttitudeInner_
         digAttitude = std::max(digAttitude, targetDigAttitudeInner_);
@@ -4159,11 +4164,11 @@ namespace local_excavation {
     for (int i = 0; i < 4; i++) {
       completedDumpAreas_.push_back(0);
     }
-    // int numDigAreas = completedDigAreas_.size();
-    // completedDigAreas_.clear();
-    // for (int i = 0; i < numDigAreas; i++) {
-    //   completedDigAreas_.push_back(0);
-    // }
+    int numDigAreas = completedDigAreas_.size();
+    completedDigAreas_.clear();
+    for (int i = 0; i < numDigAreas; i++) {
+      completedDigAreas_.push_back(0);
+    }
 
     // get vertices for the zones
     std::vector<Eigen::Vector2d> b_PosDigOuter_bd = getOuterDiggingPatchVertices();
@@ -5327,7 +5332,7 @@ namespace local_excavation {
     // add them in the opposite order
     for (int i = numPoints - 1; i >= 0; i--) {
       double angle = startAngle + i * (endAngle - startAngle) / numPoints;
-      Eigen::Vector2d vertex(dumpingZoneInnerRadius_ * cos(angle), dumpingZoneInnerRadius_
+      Eigen::Vector2d vertex(frontDumpingZoneInnerRadius_ * cos(angle), frontDumpingZoneInnerRadius_
                                                                    * sin(angle));
       vertices.push_back(vertex);
     }
@@ -5439,7 +5444,7 @@ namespace local_excavation {
     // add them in the opposite order
     for (int i = numPoints - 1; i >= 0; i--) {
       double angle = startAngle + i * (endAngle - startAngle) / numPoints;
-      Eigen::Vector2d vertex(dumpingZoneInnerRadius_ * cos(angle), dumpingZoneInnerRadius_
+      Eigen::Vector2d vertex(frontDumpingZoneInnerRadius_ * cos(angle), frontDumpingZoneInnerRadius_
                                                                    * sin(angle));
       vertices.push_back(vertex);
     }
