@@ -79,11 +79,13 @@ struct DigZone {
   double volume; // m^3
   double area; // m^2
   int numMissingCells;
+  int numMissingCellsArea;
   int numTotalCells;
   double missingVolume;
   double missingArea;
   int scoopIdStart;
   int scoopIdEnd;
+  std::vector<std::vector<double>> pointsElevation;
 };
 
 struct Scoop {
