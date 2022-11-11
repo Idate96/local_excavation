@@ -748,6 +748,7 @@ namespace local_excavation {
           planningMap_.at("working_area", *polygonIterator) = 1;
           if (markDugPreviousWaypoints_) {
             planningMap_.at("dug_area", *polygonIterator) = 1;
+            planningMap_.at("dug_workspaces", *polygonIterator) = 1;
           }
         }
       }
@@ -796,6 +797,9 @@ namespace local_excavation {
     }
     if (!planningMap_.exists("dug_area")) {
       planningMap_.add("dug_area", 0);
+    }
+    if (!planningMap_.exists("dug_workspaces")) {
+      planningMap_.add("dug_workspaces", 0);
     }
     if (!planningMap_.exists("dug_area_sdf")) {
       planningMap_.add("dug_area_sdf", 0);
@@ -3792,6 +3796,7 @@ namespace local_excavation {
           if (zoneId == 0 && planningMap_.at("current_excavation_mask", index) == -1) {
             planningMap_.at("working_area", index) = 1;
             planningMap_.at("dug_area", index) = 1;
+            planningMap_.at("dug_workspaces", index) = 1;
           }
         } else {
           planningMap_.at("active_dump_zones", index) = 1;
