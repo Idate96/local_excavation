@@ -2,8 +2,9 @@ local_excavation:
   height_precision: 0.05 # meters
   outer_digging_radius: 7.0 # in meters
   inner_digging_radius: 5.0 # meters
-  outer_dumping_radius: 6.8
+  outer_dumping_radius: 6.95
   inner_dumping_radius: 4.0
+  front_inner_dumping_radius: 3.5
   outer_workspace_outer_radius_factor: 1.1
   outer_workspace_inner_radius_factor: 1.0
   outer_workspace_angle_factor: 1.01
@@ -20,7 +21,7 @@ local_excavation:
   heading_weight_refinement: -0.2
   dump_height: 1.0 # in meters
   volume_dirt_threshold: 10.0
-  height_dirt_threshold: 0.35
+  height_dirt_threshold: 0.25
   height_dump_threshold: 3.0
   volume_threshold: 0.08 # in m^3, parameter that controls when the workspace is done
   height_threshold: 0.10 # in meters, parameter that controls when a cell not considered done
