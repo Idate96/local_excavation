@@ -925,7 +925,7 @@ namespace local_excavation {
   }
 
   void LocalPlanner::logDigArea(int zoneId) {
-    ROS_INFO_STREAM("[LocalPlanner]: ****************** Logging dig area ******************");
+    ROS_INFO_STREAM("[LocalPlanner]: ****************** Logging dig area ****************** << " << zoneId);
     // header: dig_area_id, workspace_id, duration, missing_cells_area, missing_cells_area_ratio, volume, missing_volume_ratio, missing_cells, missing_cells_ratio,
     // average_precision, std_precision, id_scoop_start, id_scoop_end
     double dig_time_sec = (digAreaEndTime_ - digAreaStartTime_).toSec(); // 0 for the moment
@@ -947,7 +947,6 @@ namespace local_excavation {
     } else {
       ROS_ERROR_STREAM("[LocalPlanner]: Invalid zone id " << zoneId);
     }
-    // TODO fix volume computation for zone 0
     // add variable to file separated by a comma
     std::ofstream logDigAreaFile(logDigAreaPath_.c_str(), std::ios_base::app);
     workspaceVolume_ = digZone.volume;
@@ -968,9 +967,9 @@ namespace local_excavation {
     std::string logDigAreaPointsPath = logDir_ + "/dig_area_" + std::to_string(currentWorkspaceIndex_) + "_"
         + std::to_string(zoneId) + "_points.csv";
     std::ofstream logDigAreaPointsFile(logDigAreaPointsPath.c_str());
-    logDigAreaPointsFile << "x,y,z,z_des" << std::endl;
+    logDigAreaPointsFile << "x,y,z,z_des,completed,refined" << std::endl;
     for (const auto& point : digZone.pointsElevation) {
-      logDigAreaPointsFile << point.at(0) << "," << point.at(1) << "," << point.at(2) << "," << point.at(3) << std::endl;
+      logDigAreaPointsFile << point.at(0) << "," << point.at(1) << "," << point.at(2) << "," << point.at(3) << "," << point.at(4) << "," << point.at(5) << std::endl;
     }
     logDigAreaPointsFile.close();
   }
@@ -1001,12 +1000,17 @@ namespace local_excavation {
     std::vector<std::vector<double>> pointsElevation;
     // ROS_INFO_STREAM("[LocalPlanner]: Computing workspace volume for zone " << zoneId);
     // iterate over the zone cells
-    grid_map::Polygon zonePolygon = planningZones_.at(digZone.digZoneId);
+    grid_map::Polygon zonePolygon;
+    if (digZone.digZoneId == 3){
+      zonePolygon = refinementZone_;
+    } else {
+      zonePolygon = planningZones_.at(digZone.digZoneId);
+    }
     // print the polygon vertices
     for (grid_map::PolygonIterator iterator(planningMap_, zonePolygon); !iterator.isPastEnd(); ++iterator) {
       // get the index
       grid_map::Index index(*iterator);
-      std::vector<double> pointElevation = {0, 0, 0, 0};
+      std::vector<double> pointElevation = {0, 0, 0, 0, 0, 0};
       // get position of the cell
       grid_map::Position position;
       planningMap_.getPosition(index, position);
@@ -1041,6 +1045,10 @@ namespace local_excavation {
             heightDifference * planningMap_.getResolution() * planningMap_.getResolution();
         double deltaOriginalVolume =
             originalHeightDifference * planningMap_.getResolution() * planningMap_.getResolution();
+        double completedCell = planningMap_.at("completed_dig_zone", index);
+        pointElevation.at(4) = completedCell;
+        double refinedCell = planningMap_.at("refined_zone", index);
+        pointElevation.at(5) = refinedCell;
 
         if (planningMap_.at("completed_dig_zone", index) != 1) {
           volume += deltaSoilVolume;
@@ -3467,9 +3475,9 @@ namespace local_excavation {
 
   bool LocalPlanner::isRefinementZoneComplete() {
     ROS_INFO_STREAM("[LocalPlanner::isRefinementZoneComplete]: Checking if refinement zone is complete");
-    if (completedDigAreas_.at(3) == 1) {
-      return true;
-    }
+//    if (completedDigAreas_.at(3) == 1) {
+//      return true;
+//    }
     // check if the refinement zone is completed
     grid_map::Polygon zonePolygon = refinementZone_;
     int totalNumCells = 0;
@@ -3566,11 +3574,11 @@ namespace local_excavation {
 
   void LocalPlanner::completeDigArea(int zoneId) {
     ROS_INFO_STREAM("[LocalPlanner::completeDigArea]: Completing dig area " << digZoneId_);
-    if (!completedDigAreas_.at(zoneId)) {
+//    if (!completedDigAreas_.at(zoneId)) {
       completedDigAreas_.at(zoneId) = 1;
       this->logDigArea(zoneId);
       startScoopAreaCounter_ = scoopCounter_;
-    }
+//    }
   }
 
   bool LocalPlanner::initializeLocalWorkspace() {
@@ -3609,7 +3617,7 @@ namespace local_excavation {
     this->choosePlanningZones();
     end = std::chrono::high_resolution_clock::now();
     duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-//    ROS_INFO_STREAM("[LocalPlanner]: choosePlanningZones took " << duration.count() << " microseconds");
+    //    ROS_INFO_STREAM("[LocalPlanner]: choosePlanningZones took " << duration.count() << " microseconds");
     //  ROS_INFO_STREAM("[LocalPlanner]: Local workspace is not complete!");
     if (digZoneId_ == -1) {
       ROS_INFO_STREAM("[LocalPlanner]: Local workspace is complete!");
