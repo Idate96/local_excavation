@@ -150,6 +150,7 @@ class LocalPlanner {
   loco_m545::RotationQuaternion findOrientationWorldToShovel(double shovelRollAngle, double shovelPitchAngle, double shovelYawAngle);
   Trajectory getDigTrajectoryWorldFrame(Eigen::Vector3d& w_P_wd);
   void getLayerHeightAlongBoom(std::string layer, std::vector<double>& layerValues, std::vector<double>& distanceFromBase);
+  void getLayerHeightFromShovelAtIntervals(std::string layer, std::vector<double> intervals, std::vector<double>& layerValues);
   double getShovelHeightFromLayer(std::string layer);
   // this function is important to check for collisions
   void updateRobotState(excavator_model::ExcavatorState& excavatorState);

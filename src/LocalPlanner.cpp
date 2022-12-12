@@ -3208,6 +3208,60 @@ namespace local_excavation {
     this->publishMarkersTrajectory(w_P_pts, "map");
   }
 
+  void LocalPlanner::getLayerHeightFromShovelAtIntervals(std::string layer, std::vector<double> intervals, std::vector<double>& layerValues){
+    // get layer heights in cabin frame
+    // starting from the position of the ENDEFFECTOR_CONTACT towards boom at given intervals
+    // ENDEFFECTOR_CONTACT (symbol s), map frame (symbol w, m), CABIN frame (symbol c)
+    // get cabin z since elevation is relative to cabin
+    geometry_msgs::TransformStamped T_cm;
+    try {
+      T_cm = tfBuffer_->lookupTransform("map", "CABIN", ros::Time(0));
+        } catch (tf2::TransformException &ex) {
+      ROS_WARN("%s", ex.what());
+      ros::Duration(1.0).sleep();
+    }
+    double w_cabin_z = T_cm.transform.translation.z;
+
+    geometry_msgs::TransformStamped T_bm;
+    try {
+      T_bm = tfBuffer_->lookupTransform("map", "BOOM", ros::Time(0));
+    } catch (tf2::TransformException &ex) {
+      ROS_WARN("%s", ex.what());
+      ros::Duration(1.0).sleep();
+    }
+    geometry_msgs::TransformStamped T_sm;
+    try {
+      T_sm = tfBuffer_->lookupTransform("map", "ENDEFFECTOR_CONTACT", ros::Time(0));
+    } catch (tf2::TransformException &ex) {
+      ROS_WARN("%s", ex.what());
+      ros::Duration(1.0).sleep();
+    }
+    // get vector from the shovel to the base in base map frame
+    Eigen::Vector3d w_P_sw = Eigen::Vector3d(T_sm.transform.translation.x, T_sm.transform.translation.y,
+                                             T_sm.transform.translation.z);
+    Eigen::Vector3d w_P_bw = Eigen::Vector3d(T_bm.transform.translation.x, T_bm.transform.translation.y,
+                                             T_bm.transform.translation.z);
+    Eigen::Vector3d w_P_sb = w_P_sw - w_P_bw;
+    Eigen::Vector2d w_P_sb_projected = w_P_sb.head(2);
+    Eigen::Vector2d w_P_bw_projected = w_P_bw.head(2);
+    Eigen::Vector2d w_P_sw_projected = w_P_sw.head(2);
+    // get the distance from the base to the shovel
+    double distance = w_P_sb_projected.norm();
+    // normalize to get the direction
+    w_P_sb_projected.normalize();
+
+    for (int i = 0; i < intervals.size(); i++) {
+      // position to query
+      Eigen::Vector2d nextPosition = w_P_sw_projected - intervals[i] * w_P_sb_projected;
+      // get the elevation at the position
+      double elevation = excavationMappingPtr_->getValueAtLayer(nextPosition, layer) - w_cabin_z;
+      // if the elevation is not nan add it to the vector
+      if (!std::isnan(elevation)) {
+        layerValues.at(i) = elevation;
+      }
+    }
+  }
+
   double LocalPlanner::getShovelHeightFromLayer(std::string layer) {
     geometry_msgs::TransformStamped T_sm;
     try {
