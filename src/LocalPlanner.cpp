@@ -3209,18 +3209,18 @@ namespace local_excavation {
   }
 
   void LocalPlanner::getLayerHeightFromShovelAtIntervals(std::string layer, std::vector<double> intervals, std::vector<double>& layerValues){
-    // get layer heights in cabin frame
+    // get layer heights in base frame
     // starting from the position of the ENDEFFECTOR_CONTACT towards boom at given intervals
     // ENDEFFECTOR_CONTACT (symbol s), map frame (symbol w, m), CABIN frame (symbol c)
     // get cabin z since elevation is relative to cabin
-    geometry_msgs::TransformStamped T_cm;
+    geometry_msgs::TransformStamped T_base_m;
     try {
-      T_cm = tfBuffer_->lookupTransform("map", "CABIN", ros::Time(0));
+      T_base_m = tfBuffer_->lookupTransform("map", "BASE", ros::Time(0));
         } catch (tf2::TransformException &ex) {
       ROS_WARN("%s", ex.what());
       ros::Duration(1.0).sleep();
     }
-    double w_cabin_z = T_cm.transform.translation.z;
+    double w_base_z = T_base_m.transform.translation.z;
 
     geometry_msgs::TransformStamped T_bm;
     try {
@@ -3254,7 +3254,7 @@ namespace local_excavation {
       // position to query
       Eigen::Vector2d nextPosition = w_P_sw_projected - intervals[i] * w_P_sb_projected;
       // get the elevation at the position
-      double elevation = excavationMappingPtr_->getValueAtLayer(nextPosition, layer) - w_cabin_z;
+      double elevation = excavationMappingPtr_->getValueAtLayer(nextPosition, layer) - w_base_z;
       // if the elevation is not nan add it to the vector
       if (!std::isnan(elevation)) {
         layerValues.at(i) = elevation;

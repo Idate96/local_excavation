@@ -1,0 +1,12 @@
+{
+    "python.autoComplete.extraPaths": [
+        "/home/zhaiyif1/Desktop/fall_SP/catkin_ws/devel/lib/python3/dist-packages",
+        "/opt/ros/noetic/lib/python3/dist-packages",
+        "/home/zhaiyif1/raisim_build/lib"
+    ],
+    "python.analysis.extraPaths": [
+        "/home/zhaiyif1/Desktop/fall_SP/catkin_ws/devel/lib/python3/dist-packages",
+        "/opt/ros/noetic/lib/python3/dist-packages",
+        "/home/zhaiyif1/raisim_build/lib"
+    ]
+}
